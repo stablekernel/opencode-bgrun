@@ -1,0 +1,132 @@
+#!/usr/bin/env bash
+# Launch a command in the background. Output -> file, status -> file. Returns immediately.
+# Usage: bgrun [-s <session-id>] [--origin <opencode|claude|cursor>] [--] <command> [args...]
+#   bgrun make test-short
+#   bgrun go test ./internal/...
+#   bgrun --origin claude make test-short
+#
+# -s <session-id>  The calling OpenCode session id. Normally supplied automatically by the
+#                  bgrun plugin tool (which captures context.sessionID in-process). Omit when
+#                  running bgrun directly from a terminal — the plugin will fall back to
+#                  session.list() to determine which session to wake.
+# --origin defaults to "opencode". Pass --origin claude or --origin cursor to suppress
+# the OpenCode wake signal (plugin will see origin != "opencode" and skip the wake).
+# Use '--' to stop flag parsing when the command itself starts with a flag.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+BG="$ROOT/.run"
+mkdir -p "$BG"
+
+# Self-prune old job artifacts (fire-and-forget, never blocks or fails this script).
+"$HERE/bgclean" 7 >/dev/null 2>&1 & disown 2>/dev/null || true
+
+# Parse optional wake flags. Hand-rolled loop for bash 3.2 compatibility (no getopts
+# long-option support). Flags must precede the command; '--' ends option parsing.
+# When no flags are provided the code path below is unchanged.
+_origin=""
+_session=""
+while [ "$#" -ge 1 ]; do
+  case "$1" in
+    -s)
+      shift
+      [ "$#" -ge 1 ] || { echo "bgrun: -s requires a session id" >&2; exit 2; }
+      _session="$1"
+      shift
+      ;;
+    --origin)
+      shift
+      [ "$#" -ge 1 ] || { echo "bgrun: --origin requires a value (opencode|claude|cursor)" >&2; exit 2; }
+      _origin="$1"
+      shift
+      ;;
+    --)
+      shift
+      break
+      ;;
+    -*)
+      echo "bgrun: unknown option: $1" >&2; exit 2
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
+[ "$#" -ge 1 ] || { echo "usage: bgrun [-s <session-id>] [--origin <tool>] [--] <command> [args...]" >&2; exit 2; }
+
+# Default origin to opencode — this repo's primary target.
+if [ -z "$_origin" ]; then
+  _origin="opencode"
+fi
+
+# Warn once (per .run/ lifetime) if terminal-notifier isn't installed. A sentinel
+# file suppresses the warning on subsequent bgrun calls so it doesn't spam every invocation.
+if ! command -v terminal-notifier >/dev/null 2>&1; then
+  _tn_warned="$BG/.tn-warned"
+  if [ ! -f "$_tn_warned" ]; then
+    echo "⚠️  bgrun: terminal-notifier not found — completion notifications will be brief." >&2
+    echo "   Install with: brew install terminal-notifier" >&2
+    touch "$_tn_warned"
+  fi
+fi
+
+# Build slug from the full command line (remaining args after flag parsing).
+raw="$*"
+slug="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g; s/^-|-$//g' | cut -c1-24)"
+[ -n "$slug" ] || slug="job"
+id="${slug}-$(date +%s)-$$"
+
+STATUS="$BG/$id.status"
+LOG="$BG/$id.log"
+: > "$LOG"
+
+# 1. Write initial status SYNCHRONOUSLY — eliminates the startup race so a
+#    status check immediately after launch always finds a readable file.
+{
+  echo "state=running"
+  echo "id=$id"
+  echo "started=$(date +%s)"
+  echo "cmd=$raw"
+} > "$STATUS"
+
+# 1b. Write origin sidecar atomically. Presence of .origin with value "opencode"
+#     is the wake signal — the plugin reads it to decide whether to wake this session.
+_orig_tmp="$BG/$id.origin.tmp.$$"
+printf '%s\n' "$_origin" > "$_orig_tmp"
+mv "$_orig_tmp" "$BG/$id.origin"
+
+# 1c. Write session sidecar atomically BEFORE spawning — a fast job must not be able
+#     to finish and fire .notify before the id is persisted. The plugin reads this for
+#     exact session routing. Omitted when -s was not passed (plugin falls back to
+#     session.list() or activeSessionID from the chat.message hook).
+if [ -n "$_session" ]; then
+  _sess_tmp="$BG/$id.session.tmp.$$"
+  printf '%s\n' "$_session" > "$_sess_tmp"
+  mv "$_sess_tmp" "$BG/$id.session"
+fi
+
+# 2. Resolve the app bundle ID for notification click-through BEFORE launching
+#    the runner. Prefer BGRUN_ACTIVATE env var (set in your shell profile);
+#    fall back to frontmost app detection. Writing it here (before nohup) means
+#    even ultra-fast jobs finish AFTER this line, so _bgrunner.sh always sees it.
+if [ -n "${BGRUN_ACTIVATE:-}" ]; then
+  echo "bundle_id=$BGRUN_ACTIVATE" >> "$STATUS"
+else
+  bundle_id="$(osascript -e 'tell application "System Events" to bundle identifier of first application process whose frontmost is true' 2>/dev/null || true)"
+  [ -n "$bundle_id" ] && echo "bundle_id=$bundle_id" >> "$STATUS"
+fi
+
+# 3. Detach. nohup survives terminal/session close; disown removes from job table.
+nohup "$HERE/_bgrunner.sh" "$STATUS" "$LOG" "$@" >/dev/null 2>&1 &
+child=$!
+# 4. Record the runner PID before disown so a fast-finishing job can't overwrite
+#    STATUS (via _bgrunner.sh's atomic mv) before the PID line lands.
+echo "pid=$child" >> "$STATUS"
+disown 2>/dev/null || true
+
+# 5. Tell the caller how to follow up. This is the ONLY thing printed.
+echo "started: $id"
+echo "  status: bgstatus $id"
+echo "  tail:   bgtail $id 40"
+echo "  log:    $LOG"

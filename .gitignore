@@ -1,0 +1,7 @@
+.run/
+node_modules/
+*.log
+.DS_Store
+
+# Transient agent working files (retros, subagent scratch) — never committed.
+.opencode/wip/

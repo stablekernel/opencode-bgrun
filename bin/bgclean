@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Remove job artifacts older than N days from .run/.
+# Usage: bgclean [days]   (default: 7)
+set -u
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+BG="$ROOT/.run"
+DAYS="${1:-7}"
+
+# Validate argument is a non-negative integer.
+# Note: bgclean 0 uses find -mtime +0, which means "strictly older than 24h" on macOS —
+# it does NOT delete everything; jobs created in the last 24 hours are preserved.
+case "$DAYS" in
+  ''|*[!0-9]*) echo "usage: bgclean [days]  (days must be a non-negative integer)" >&2; exit 2 ;;
+esac
+
+if [ ! -d "$BG" ]; then
+  echo "nothing to clean (.run/ does not exist)"
+  exit 0
+fi
+
+# Check if there are any jobs at all.
+status_count=0
+for f in "$BG"/*.status; do
+  [ -f "$f" ] && status_count=$((status_count + 1))
+done
+if [ "$status_count" -eq 0 ]; then
+  echo "nothing to clean (no jobs in .run/)"
+  exit 0
+fi
+
+removed=0
+skipped_running=0
+kept=0
+
+# Find .status files older than DAYS days (macOS-compatible find, no GNU extensions).
+# We drive off .status files; each job has a paired .log.
+while IFS= read -r status_file; do
+  [ -f "$status_file" ] || continue
+  job_id="$(basename "$status_file" .status)"
+
+  # Never delete a truly running job. But if state=running and the PID is gone,
+  # the job crashed — allow cleanup rather than skipping it indefinitely.
+  state="$(sed -n 's/^state=//p' "$status_file" 2>/dev/null)"
+  if [ "$state" = "running" ]; then
+    pid="$(sed -n 's/^pid=//p' "$status_file" 2>/dev/null)"
+    # Mirror bgstatus's three-way logic: empty pid (startup window or abandoned) is
+    # treated as running — preserve it. Only clean up a job whose pid is known-dead.
+    if [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null; then
+      skipped_running=$((skipped_running + 1))
+      continue
+    fi
+    # Non-empty pid that is not alive — job crashed; fall through to cleanup.
+  fi
+
+  log_file="$BG/$job_id.log"
+  rm -f "$status_file" "$log_file" \
+        "$BG/$job_id.session" "$BG/$job_id.origin" \
+        "$BG/$job_id.notify" "$BG/$job_id.notified"
+  removed=$((removed + 1))
+done < <(find "$BG" -maxdepth 1 -name '*.status' -mtime "+$DAYS")
+
+# Count remaining jobs.
+for f in "$BG"/*.status; do
+  [ -f "$f" ] && kept=$((kept + 1))
+done
+
+# Print summary.
+summary="removed $removed job(s), kept $kept"
+[ "$skipped_running" -gt 0 ] && summary="$summary, skipped $skipped_running running"
+echo "$summary"

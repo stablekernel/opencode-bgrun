@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Print the last N lines of a job's log (default 40). Keeps large output OUT of context.
+# Usage: bgtail <job-id> [lines]
+set -u
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+BG="$ROOT/.run"
+id="${1:?usage: bgtail <job-id> [lines]}"
+n="${2:-40}"
+case "$n" in
+  ''|*[!0-9]*) echo "bgtail: lines must be a non-negative integer, got: $n" >&2; exit 2 ;;
+esac
+log="$BG/$id.log"
+[ -f "$log" ] || { echo "no log for $id" >&2; exit 1; }
+echo "== last $n lines of $id =="
+tail -n "$n" "$log"

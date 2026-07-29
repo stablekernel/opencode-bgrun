@@ -1,0 +1,70 @@
+#!/usr/bin/env bash
+# Report job status without blocking. Reconciles stale 'running' against PID liveness.
+# Usage:
+#   bgstatus            # list all jobs (one line each)
+#   bgstatus <job-id>   # detailed status for one job
+set -u
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+BG="$ROOT/.run"
+[ -d "$BG" ] || { echo "no jobs"; exit 0; }
+
+reconcile() { # $1=status-file -> prints effective state
+  local f="$1" state pid
+  state="$(sed -n 's/^state=//p' "$f")"
+  if [ "$state" = "running" ]; then
+    pid="$(sed -n 's/^pid=//p' "$f")"
+    if [ -z "$pid" ]; then
+      # Empty pid = startup window (bgrun hasn't written it yet) OR bgrun died before
+      # recording it. Use started= to distinguish: if more than 5 seconds have passed
+      # with no pid, bgrun is gone and the runner was never detached.
+      local started now
+      started="$(sed -n 's/^started=//p' "$f")"
+      now="$(date +%s)"
+      if [ -n "$started" ] && [ $(( now - started )) -gt 5 ]; then
+        echo "crashed"
+      else
+        echo "running"
+      fi
+    elif kill -0 "$pid" 2>/dev/null; then echo "running"
+    else echo "crashed"; fi
+  else
+    echo "$state"
+  fi
+}
+
+if [ "$#" -ge 1 ]; then
+  f="$BG/$1.status"
+  [ -f "$f" ] || { echo "unknown job: $1" >&2; exit 1; }
+  eff="$(reconcile "$f")"
+  echo "job:   $1"
+  echo "state: $eff"
+  sed -n 's/^exit=/exit:  /p; s/^cmd=/cmd:   /p' "$f"
+  # Elapsed / duration
+  started="$(sed -n 's/^started=//p' "$f")"
+  finished="$(sed -n 's/^finished=//p' "$f")"
+  now="$(date +%s)"
+  if [ -n "$started" ]; then
+    end="${finished:-$now}"
+    secs=$(( end - started ))
+    if [ "$secs" -ge 3600 ]; then
+      elapsed="$(( secs/3600 ))h $(( (secs%3600)/60 ))m $(( secs%60 ))s"
+    elif [ "$secs" -ge 60 ]; then
+      elapsed="$(( secs/60 ))m $(( secs%60 ))s"
+    else
+      elapsed="${secs}s"
+    fi
+    echo "elapsed: $elapsed"
+  fi
+  [ "$eff" = "crashed" ] && echo "note:  process died without recording exit code — inspect the log"
+  exit 0
+fi
+
+# list mode
+found=0
+for f in "$BG"/*.status; do
+  [ -f "$f" ] || continue
+  found=1
+  id="$(basename "$f" .status)"
+  printf '%-40s %s\n' "$id" "$(reconcile "$f")"
+done
+[ "$found" -eq 0 ] && echo "no jobs"
