@@ -30,7 +30,7 @@ _bg_dir="$(dirname "$STATUS")"
 _origin_file="$_bg_dir/$_job_id.origin"
 _origin_val=""
 if [ -f "$_origin_file" ]; then
-  _origin_val="$(cat "$_origin_file" 2>/dev/null | tr -d '[:space:]')"
+  _origin_val="$(tr -d '[:space:]' < "$_origin_file" 2>/dev/null)"
 fi
 if [ "$_origin_val" = "opencode" ]; then
   _notify_msg="Background job ${_job_id} completed: exit ${ec} - run: bgtail ${_job_id}"
