@@ -98,7 +98,7 @@ Add the following entry to the `plugins` array in your `opencode.json`:
 ```json
 {
   "plugins": [
-    "opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0"
+    "opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1"
   ]
 }
 ```
@@ -156,7 +156,7 @@ touching the plugin or skill (which the git-install already provides):
 `opencode.json` git-spec. It auto-discovers the scripts inside OpenCode's package cache at:
 
 ```
-~/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0/node_modules/opencode-bgrun/bin
+~/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1/node_modules/opencode-bgrun/bin
 ```
 
 The version tag in the path is discovered dynamically, so it keeps working across version
@@ -171,7 +171,7 @@ If you prefer, symlink directly from the cache. The path contains `#`, `:`, and 
 **must be quoted**:
 
 ```bash
-PKG="$HOME/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0/node_modules/opencode-bgrun"
+PKG="$HOME/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1/node_modules/opencode-bgrun"
 mkdir -p "$HOME/.local/bin"
 for cmd in bgrun bgstatus bgtail bgclean; do
   ln -sf "$PKG/bin/$cmd" "$HOME/.local/bin/$cmd"

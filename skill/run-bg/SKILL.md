@@ -82,7 +82,7 @@ as a fallback when no `.session` sidecar is present.
 
 **The plugin is required on OpenCode.** Without it, the human desktop notification still
 fires, but there is no live agent wake. Install the plugin by adding
-`opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0` to the `plugin` array in your
+`opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1` to the `plugin` array in your
 `opencode.json` (recommended), or run `./install.sh` from a repo clone for local dev.
 Restart OpenCode either way. See Setup below.
 
@@ -111,7 +111,7 @@ deliverables. Today `bgrun` handles them at the notification rung only.
 **1. Recommended — plugin via git-install:**
 Add the spec to the `plugin` array in your `opencode.json`:
 ```json
-{ "plugin": ["opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0"] }
+{ "plugin": ["opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1"] }
 ```
 OpenCode fetches the package automatically on next start. Restart OpenCode to load the
 plugin. This gives you the agent-facing `bgrun` tool and the session-wake feature. It does

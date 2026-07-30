@@ -120,7 +120,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
         # (b) Discover from OpenCode plugin cache
         # The cache path contains @ : # and an embedded / in the package spec,
         # so the package spec spans two path segments:
-        #   opencode-bgrun@github:stablekernel  /  opencode-bgrun#v0.1.0
+        #   opencode-bgrun@github:stablekernel  /  opencode-bgrun#v0.1.1
         # We glob over both segments to handle any version.
         CACHE_MATCH=""
         CACHE_COUNT=0
@@ -144,7 +144,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
             printf "  To fix, do one of:\n"
             printf "    1. Run this script from a repo clone (git clone stablekernel/opencode-bgrun).\n"
             printf "    2. Add the plugin to opencode.json first:\n"
-            printf "         \"plugins\": [\"opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0\"]\n"
+            printf "         \"plugins\": [\"opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1\"]\n"
             printf "       then let OpenCode fetch it, and re-run: install.sh --cli-only\n"
             exit 1
         fi
