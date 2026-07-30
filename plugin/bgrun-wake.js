@@ -150,10 +150,12 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
   // bgrunTool is null when @opencode-ai/plugin couldn't be loaded (graceful degrade).
   const bgrunTool = tool ? tool({
     description:
-      'Run a shell command in the background (detached). Output streams to a file in .run/; ' +
-      'returns immediately with a job id. When the job finishes, THIS session is woken to ' +
-      'review the result. Use for long/verbose commands (tests, builds, lint) so they do not ' +
-      'block or flood context.',
+      'Run a shell command in the background (detached). Output streams to a file in .run/ ' +
+      'and the tool returns immediately with a job id — use bgstatus <id> to check progress ' +
+      'and bgtail <id> [lines] to retrieve output. When the job finishes, THIS session is ' +
+      'automatically woken so you can review the result; do NOT poll in a loop waiting for ' +
+      'completion. Use for long/verbose commands (tests, builds, lint) so they do not block ' +
+      'or flood context. Pattern: start → hand control back → session wakes you on done.',
     args: {
       command: tool.schema.string().describe(
         'The full shell command to run in the background, e.g. "make test-short"'
@@ -401,3 +403,5 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
 
   return pluginReturn;
 };
+
+export default BgrunWakePlugin;

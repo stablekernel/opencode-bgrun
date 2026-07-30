@@ -4,6 +4,40 @@
   "description": "Background job runner for AI coding agents with live session wake-to-act on OpenCode.",
   "type": "module",
   "license": "MIT",
+  "main": "./plugin/bgrun-wake.js",
+  "exports": {
+    ".": "./plugin/bgrun-wake.js"
+  },
+  "bin": {
+    "bgrun": "./bin/bgrun",
+    "bgstatus": "./bin/bgstatus",
+    "bgtail": "./bin/bgtail",
+    "bgclean": "./bin/bgclean"
+  },
+  "files": [
+    "bin/",
+    "plugin/bgrun-wake.js",
+    "skill/",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/stablekernel/opencode-bgrun.git"
+  },
+  "homepage": "https://github.com/stablekernel/opencode-bgrun#readme",
+  "bugs": {
+    "url": "https://github.com/stablekernel/opencode-bgrun/issues"
+  },
+  "keywords": [
+    "opencode",
+    "plugin",
+    "background",
+    "bgrun",
+    "ai",
+    "agent"
+  ],
+  "author": "stablekernel",
   "dependencies": {
     "@opencode-ai/plugin": "^1.16.2",
     "zod": "^4.1.8"

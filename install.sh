@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# install.sh — Wire opencode-bgrun into the user's environment.
+# install.sh — Local/dev install for opencode-bgrun.
+#   • Installs Node deps into the repo (so the symlinked plugin resolves them).
+#   • Symlinks bin/, plugin/, and skill/ into the user's config dirs.
 # Safe to re-run; replaces existing symlinks, never clobbers real files.
+# Coworkers: use the git-install plugin spec in the README instead.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -37,6 +40,31 @@ make_link() {
 
 printf "\n=== opencode-bgrun install ===\n\n"
 
+# ── Prerequisite: node ────────────────────────────────────────────────────────
+if ! command -v node > /dev/null 2>&1; then
+    warn "node not found — the plugin (tool registration + wake notifications) requires Node/OpenCode's runtime."
+    warn "The shell scripts (bgrun/bgstatus/bgtail/bgclean) will still work without it."
+fi
+
+# ── Dep install: plugin Node dependencies ─────────────────────────────────────
+printf "0/3  Installing plugin dependencies into repo…\n"
+if command -v npm > /dev/null 2>&1; then
+    if ! npm install --prefix "$SCRIPT_DIR"; then
+        warn "npm install failed — the plugin may fall back to resolving the OpenCode SDK from the OpenCode config dir at runtime."
+    else
+        ok "npm install complete"
+    fi
+elif command -v bun > /dev/null 2>&1; then
+    if ! (cd "$SCRIPT_DIR" && bun install); then
+        warn "bun install failed — the plugin may fall back to resolving the OpenCode SDK from the OpenCode config dir at runtime."
+    else
+        ok "bun install complete"
+    fi
+else
+    warn "Neither npm nor bun found — Node deps not installed."
+    warn "The plugin will fall back to resolving the OpenCode SDK from the OpenCode config dir at runtime (usually works)."
+fi
+
 # ── 1. CLI scripts → ~/.local/bin/ ───────────────────────────────────────────
 printf "1/3  CLI scripts → ~/.local/bin/\n"
 mkdir -p "$HOME/.local/bin"
@@ -44,6 +72,16 @@ mkdir -p "$HOME/.local/bin"
 for name in bgrun bgstatus bgtail bgclean; do
     make_link "$SCRIPT_DIR/bin/$name" "$HOME/.local/bin/$name"
 done
+
+# PATH check — warn if ~/.local/bin isn't on $PATH
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *)
+        warn "\$HOME/.local/bin is not on your PATH — bgrun and friends won't be found in a shell."
+        warn "Add this line to your ~/.zshrc (or ~/.bashrc), then restart your shell:"
+        printf "    export PATH=\"\$HOME/.local/bin:\$PATH\"\n"
+        ;;
+esac
 
 # ── 2. Plugin → ~/.config/opencode/plugin/ ───────────────────────────────────
 printf "\n2/3  Plugin → ~/.config/opencode/plugin/\n"
@@ -95,4 +133,6 @@ printf "    Plugin:   bgrun-wake.js  →  ~/.config/opencode/plugin/\n"
 printf "    Skill:    run-bg/        →  ~/.config/opencode/skills/\n"
 printf "\n"
 printf "  ⚠️  REMINDER: Restart OpenCode for the plugin to load.\n"
+printf "\n"
+printf "  Optional: brew install terminal-notifier  (macOS desktop notifications)\n"
 printf "\n"
