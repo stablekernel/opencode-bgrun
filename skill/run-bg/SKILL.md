@@ -35,7 +35,7 @@ previous one started.
 | Tail   | `bgtail <job-id> [lines]` | `bgtail <job-id> [lines]` |
 | Clean  | `bgclean [days]` | `bgclean [days]` |
 
-The shell scripts are installed on PATH (symlinked into `~/.local/bin/` by `install.sh`).
+The shell scripts are installed on PATH via `./install.sh --cli-only` (or full `./install.sh` for local dev).
 No path prefix needed — use bare `bgstatus`, `bgtail`, `bgclean` (and `bgrun` when in a
 human shell).
 
@@ -81,8 +81,10 @@ proactively continues. `chat.message` hook tracking and `client.session.list()` 
 as a fallback when no `.session` sidecar is present.
 
 **The plugin is required on OpenCode.** Without it, the human desktop notification still
-fires, but there is no live agent wake. Install the plugin via `./install.sh` (see Setup
-below) and restart OpenCode.
+fires, but there is no live agent wake. Install the plugin by adding
+`opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0` to the `plugin` array in your
+`opencode.json` (recommended), or run `./install.sh` from a repo clone for local dev.
+Restart OpenCode either way. See Setup below.
 
 ### Other tools (Cursor, Claude Code)
 
@@ -106,12 +108,23 @@ deliverables. Today `bgrun` handles them at the notification rung only.
 
 ## Setup (one-time)
 
-Run `./install.sh` from the repo root. It symlinks:
-- CLI (`bgrun`, `bgstatus`, `bgtail`, `bgclean`) → `~/.local/bin/`
-- Plugin (`bgrun-wake.js`) → `~/.config/opencode/plugin/`
-- Skill (`run-bg/`) → `~/.config/opencode/skills/`
+**1. Recommended — plugin via git-install:**
+Add the spec to the `plugin` array in your `opencode.json`:
+```json
+{ "plugin": ["opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.0"] }
+```
+OpenCode fetches the package automatically on next start. Restart OpenCode to load the
+plugin. This gives you the agent-facing `bgrun` tool and the session-wake feature. It does
+**not** put the human shell CLIs (`bgrun`, `bgstatus`, `bgtail`, `bgclean`) on your PATH.
 
-**Restart OpenCode after install** for the plugin to load.
+**2. Human shell CLI (optional, notify-only):**
+To also get the shell CLIs on your PATH, run `./install.sh --cli-only`. It works from a
+clone, or auto-discovers the git-installed package in OpenCode's cache without a clone.
+`./install.sh --help` shows all modes. Remove with `./uninstall.sh --cli-only`.
+
+**3. Local dev (from a clone):**
+Run `./install.sh` (no flags) from the repo root. It symlinks CLI + plugin + skill from
+your clone for development. Restart OpenCode after.
 
 `terminal-notifier` is optional — if absent, notifications fall back to `osascript` (built
 into macOS). For click-through to OpenCode from notifications, add to `~/.zshrc`:
