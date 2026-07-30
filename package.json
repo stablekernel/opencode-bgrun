@@ -1,9 +1,12 @@
 {
-  "name": "opencode-bgrun",
-  "version": "0.1.1",
+  "name": "@stablekernel/opencode-bgrun",
+  "version": "0.1.2",
   "description": "Background job runner for AI coding agents with live session wake-to-act on OpenCode.",
   "type": "module",
   "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
   "main": "./plugin/bgrun-wake.js",
   "exports": {
     ".": "./plugin/bgrun-wake.js"
@@ -14,10 +17,16 @@
     "bgtail": "./bin/bgtail",
     "bgclean": "./bin/bgclean"
   },
+  "scripts": {
+    "test": "node plugin/bgrun-wake.test.js",
+    "lint": "shellcheck bin/bgrun bin/bgstatus bin/bgtail bin/bgclean bin/_bgrunner.sh install.sh uninstall.sh && node --check plugin/bgrun-wake.js"
+  },
   "files": [
     "bin/",
     "plugin/bgrun-wake.js",
     "skill/",
+    "install.sh",
+    "uninstall.sh",
     "README.md",
     "LICENSE"
   ],

@@ -25,6 +25,7 @@ jobs:
       # ubuntu-latest ships shellcheck preinstalled; no install step needed.
       # Target scripts explicitly: bin/ entries lack .sh extensions so a glob
       # on *.sh would miss them.
+      # NOTE: runs before Node setup — shellcheck needs no node_modules.
       - name: shellcheck — bin/* and install/uninstall scripts
         id: shellcheck
         run: |
@@ -60,7 +61,7 @@ jobs:
       - name: Run smoke tests (plugin/bgrun-wake.test.js)
         id: tests
         run: |
-          output=$(node plugin/bgrun-wake.test.js 2>&1)
+          output=$(npm test 2>&1)
           echo "$output"
           # Extract pass/fail counts for summary
           passed=$(echo "$output" | grep -oP 'Passed:\s*\K[0-9]+' || echo "?")
