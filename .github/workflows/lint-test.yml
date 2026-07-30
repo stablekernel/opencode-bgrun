@@ -1,0 +1,107 @@
+name: Lint and Test (reusable)
+
+# This workflow is ONLY called by other workflows (release.yml, future callers).
+# It is NOT referenced from ci.yml because GitHub's reusable-workflow check-naming
+# scheme surfaces checks as "<caller-job-name> / <callee-job-name>". If ci.yml
+# called this via `uses:`, the required-status-check "lint-test" would become
+# "lint-test / lint-test" (or whatever the caller job is named), silently breaking
+# branch protection. ci.yml therefore keeps its lint-test job INLINE and this file
+# exists solely for release.yml (and any future callers) to reuse the gate.
+on:
+  workflow_call:
+
+# Least-privilege: read-only repo contents; no other scopes needed for lint+test
+permissions:
+  contents: read
+
+jobs:
+  lint-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ── shellcheck ──────────────────────────────────────────────────────────
+      # ubuntu-latest ships shellcheck preinstalled; no install step needed.
+      # Target scripts explicitly: bin/ entries lack .sh extensions so a glob
+      # on *.sh would miss them.
+      # NOTE: runs before Node setup — shellcheck needs no node_modules.
+      - name: shellcheck — bin/* and install/uninstall scripts
+        id: shellcheck
+        run: |
+          shellcheck \
+            bin/bgrun \
+            bin/bgstatus \
+            bin/bgtail \
+            bin/bgclean \
+            bin/_bgrunner.sh \
+            install.sh \
+            uninstall.sh
+          echo "result=passed" >> "$GITHUB_OUTPUT"
+
+      # ── Node setup ──────────────────────────────────────────────────────────
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      # ── Dependency install ──────────────────────────────────────────────────
+      - name: npm ci
+        run: npm ci
+
+      # ── Syntax gate ─────────────────────────────────────────────────────────
+      - name: node --check plugin/bgrun-wake.js
+        id: node_check
+        run: |
+          node --check plugin/bgrun-wake.js
+          echo "result=passed" >> "$GITHUB_OUTPUT"
+
+      # ── Smoke test suite ─────────────────────────────────────────────────────
+      - name: Run smoke tests (plugin/bgrun-wake.test.js)
+        id: tests
+        run: |
+          output=$(npm test 2>&1)
+          echo "$output"
+          # Extract pass/fail counts for summary
+          passed=$(echo "$output" | grep -oP 'Passed:\s*\K[0-9]+' || echo "?")
+          failed=$(echo "$output" | grep -oP 'Failed:\s*\K[0-9]+' || echo "?")
+          echo "passed=${passed}" >> "$GITHUB_OUTPUT"
+          echo "failed=${failed}" >> "$GITHUB_OUTPUT"
+          # Propagate the original exit code
+          echo "$output" | grep -q "Failed: 0" || exit 1
+
+      # ── Packaging sanity gate ────────────────────────────────────────────────
+      - name: npm pack --dry-run (files allowlist sanity)
+        id: pack
+        run: |
+          pack_output=$(npm pack --dry-run 2>&1)
+          echo "$pack_output"
+          file_count=$(echo "$pack_output" | grep -oP 'total files:\s*\K[0-9]+' || echo "?")
+          echo "file_count=${file_count}" >> "$GITHUB_OUTPUT"
+
+      # ── Step summary (always rendered, even on failure) ──────────────────────
+      - name: Write run summary
+        if: always()
+        env:
+          SHELLCHECK_RESULT: ${{ steps.shellcheck.outcome }}
+          NODE_CHECK_RESULT: ${{ steps.node_check.outcome }}
+          TEST_PASSED: ${{ steps.tests.outputs.passed }}
+          TEST_FAILED: ${{ steps.tests.outputs.failed }}
+          PACK_FILES: ${{ steps.pack.outputs.file_count }}
+          TESTS_OUTCOME: ${{ steps.tests.outcome }}
+          PACK_OUTCOME: ${{ steps.pack.outcome }}
+        run: |
+          {
+            echo "## CI — ${{ github.workflow }} — ${{ job.status }}"
+            echo ""
+            echo "| Check | Result |"
+            echo "|---|---|"
+            echo "| shellcheck | \`${SHELLCHECK_RESULT}\` |"
+            echo "| node --check | \`${NODE_CHECK_RESULT}\` |"
+            echo "| smoke tests | \`${TESTS_OUTCOME}\` — passed: **${TEST_PASSED}**, failed: **${TEST_FAILED}** |"
+            echo "| npm pack --dry-run | \`${PACK_OUTCOME}\` — ${PACK_FILES} files in tarball |"
+            echo ""
+            echo "Ref: \`${{ github.sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"

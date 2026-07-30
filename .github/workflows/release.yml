@@ -1,0 +1,137 @@
+name: Release
+
+# STATE-MUTATING WORKFLOW — publishes to npm.
+# dry-run safety, concurrency serialization, annotations, and summary are all MANDATORY.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: "Build + validate + npm publish --dry-run; skip the real publish"
+        type: boolean
+        default: true
+
+# Top-level least-privilege default; publish job overrides with id-token: write.
+permissions:
+  contents: read
+
+# Mutating workflow — do NOT cancel in progress.
+# Concurrency group splits real vs dry-run so dry-runs never block real releases.
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}-${{ (github.event_name == 'workflow_dispatch' && inputs.dry-run) && 'dryrun' || 'real' }}
+  cancel-in-progress: false
+
+jobs:
+  # ── Gate: CI must pass before we can publish ──────────────────────────────
+  verify:
+    uses: ./.github/workflows/lint-test.yml
+
+  # ── Publish ───────────────────────────────────────────────────────────────
+  publish:
+    needs: verify
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      # id-token: write is required for npm OIDC trusted publishing (provenance).
+      # PREREQUISITE: the npm package must have a trusted-publisher configuration
+      # pointing at this repo + workflow. If OIDC trusted publishing is not yet
+      # enabled on the package, use the classic NPM_TOKEN fallback below.
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Set up Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+          registry-url: "https://registry.npmjs.org"
+
+      - name: npm ci
+        run: npm ci
+
+      # ── Version-consistency guard ─────────────────────────────────────────
+      # On a real release event: the git tag must match package.json version.
+      # On workflow_dispatch dry-run: no tag exists, so emit a notice instead.
+      - name: Verify version consistency
+        id: version_check
+        env:
+          # Pass the tag through env: to avoid author-controlled string injection.
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        run: |
+          pkg_version=$(node -p "require('./package.json').version")
+          echo "pkg_version=${pkg_version}" >> "$GITHUB_OUTPUT"
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            # Strip leading 'v' from tag (e.g. v0.1.2 → 0.1.2)
+            tag_version="${RELEASE_TAG#v}"
+            if [ "$tag_version" != "$pkg_version" ]; then
+              echo "::error title=Version mismatch::Release tag '${RELEASE_TAG}' (${tag_version}) does not match package.json version '${pkg_version}'. Update package.json or re-tag."
+              exit 1
+            fi
+            echo "::notice::Version check passed — tag ${RELEASE_TAG} matches package.json ${pkg_version}"
+          else
+            # workflow_dispatch dry-run: no tag, just report what would publish
+            echo "::notice::DRY-RUN — package.json version that would be published: ${pkg_version}"
+          fi
+
+      # ── Real publish (gated: only on release event or non-dry-run dispatch) ─
+      - name: Publish to npm (real)
+        id: publish_real
+        if: ${{ github.event_name == 'release' || !inputs.dry-run }}
+        env:
+          # Fallback (classic token): if OIDC trusted publishing is not configured
+          # on the npm package, uncomment the next line and add NPM_TOKEN as a
+          # GitHub Actions secret.
+          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
+        run: |
+          npm publish --provenance --access public
+          echo "::notice::Published @stablekernel/opencode-bgrun@${PKG_VERSION} to npm"
+
+      # ── Dry-run publish (gated: only on workflow_dispatch with dry-run=true) ─
+      - name: Publish dry-run (workflow_dispatch)
+        id: publish_dry
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+        env:
+          PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
+        run: |
+          # --provenance requires an actual publish context (OIDC token exchange);
+          # it is intentionally omitted for dry-run to avoid false OIDC errors.
+          npm publish --dry-run --access public
+          echo "::notice::DRY-RUN — no package published. Would have published @stablekernel/opencode-bgrun@${PKG_VERSION}"
+
+      # ── Step summary (always rendered, including under dry-run) ───────────
+      - name: Write publish summary
+        if: always()
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          IS_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+          PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          GIT_REF: ${{ github.ref }}
+          PUBLISH_REAL_OUTCOME: ${{ steps.publish_real.outcome }}
+          PUBLISH_DRY_OUTCOME: ${{ steps.publish_dry.outcome }}
+          VERSION_CHECK_OUTCOME: ${{ steps.version_check.outcome }}
+        run: |
+          {
+            echo "## Release — ${{ github.workflow }} — ${{ job.status }}"
+            echo ""
+            echo "| Field | Value |"
+            echo "|---|---|"
+            echo "| Package | \`@stablekernel/opencode-bgrun\` |"
+            echo "| Version | \`${PKG_VERSION}\` |"
+            echo "| Event | \`${EVENT_NAME}\` |"
+            echo "| Dry-run | \`${IS_DRY_RUN}\` |"
+            echo "| Provenance | \`$([ "$EVENT_NAME" = "release" ] && echo "yes" || echo "no (dry-run)")\` |"
+            echo "| Published | \`$([ "${PUBLISH_REAL_OUTCOME}" = "success" ] && echo "yes" || echo "skipped/failed")\` |"
+            echo "| Git ref | \`${GIT_REF}\` |"
+            echo "| Release tag | \`${RELEASE_TAG:-N/A}\` |"
+            echo "| Version check | \`${VERSION_CHECK_OUTCOME}\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
