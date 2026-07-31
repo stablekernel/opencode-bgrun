@@ -62,7 +62,7 @@ done
 # Usage: remove_link <dest>
 # Accepted roots:
 #   1. $SCRIPT_DIR   (dev/clone install)
-#   2. $HOME/.cache/opencode/packages/  containing "opencode-bgrun"  (git-install)
+#   2. $HOME/.cache/opencode/packages/  containing "@stablekernel/opencode-bgrun"  (npm install)
 remove_link() {
     local dest="$1"
 

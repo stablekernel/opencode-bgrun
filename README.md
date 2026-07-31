@@ -91,22 +91,22 @@ scripts called from the agent via a bash tool.
 
 ## Install details
 
-### Recommended: git-install via `opencode.json` (coworkers / CI)
+### Recommended: npm install via `opencode.json` (coworkers / CI)
 
 Add the following entry to the `plugins` array in your `opencode.json`:
 
 ```json
 {
   "plugins": [
-    "opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1"
+    "@stablekernel/opencode-bgrun@0.1.2"
   ]
 }
 ```
 
 OpenCode installs the package into
-`~/.cache/opencode/packages/<spec>/node_modules/opencode-bgrun/` and loads the plugin
-automatically on startup. No PATH setup is needed for the **agent (tool) path** — the plugin
-resolves `bin/bgrun` by absolute path at runtime.
+`~/.cache/opencode/packages/@stablekernel/opencode-bgrun@<version>/node_modules/@stablekernel/opencode-bgrun/`
+and loads the plugin automatically on startup. No PATH setup is needed for the **agent (tool)
+path** — the plugin resolves `bin/bgrun` by absolute path at runtime.
 
 ### Local / dev install (repo clone)
 
@@ -131,18 +131,28 @@ is required for the tool registration and completion poller to become active.
 ### Optional: human shell CLI
 
 The **`bgrun` tool** (plugin-registered) is what AI agents call and it works automatically
-from the git-install — no PATH setup required. It also delivers the session-wake feature.
+from the npm install — no PATH setup required. It also delivers the session-wake feature.
 
 The human shell commands (`bgrun`, `bgstatus`, `bgtail`, `bgclean`) are **optional and
 notify-only** — they fire a desktop notification on completion but do **not** wake an agent
-session. (Agent-wake is exclusively the plugin `bgrun` tool.) After a git-install via
+session. (Agent-wake is exclusively the plugin `bgrun` tool.) After an npm install via
 `opencode.json` those scripts are **not on your PATH**; typing `bgrun` in a terminal will
 produce `command not found`.
 
 #### Recommended: `install.sh --cli-only`
 
-Run `./install.sh --cli-only` to symlink just the four CLI scripts into `~/.local/bin` without
-touching the plugin or skill (which the git-install already provides):
+**Recommended:** install via npm global:
+
+```bash
+npm i -g @stablekernel/opencode-bgrun
+```
+
+This puts `bgrun`, `bgstatus`, `bgtail`, and `bgclean` on your PATH automatically via npm's
+bin map.
+
+Alternatively, if you have the repo cloned, run `./install.sh --cli-only` to symlink just
+the four CLI scripts into `~/.local/bin` without touching the plugin or skill (which the npm
+install already provides):
 
 ```bash
 # If you have the repo cloned:
@@ -153,13 +163,13 @@ touching the plugin or skill (which the git-install already provides):
 ```
 
 `--cli-only` also works **without a clone** when the plugin is already installed via the
-`opencode.json` git-spec. It auto-discovers the scripts inside OpenCode's package cache at:
+`opencode.json` npm spec. It auto-discovers the scripts inside OpenCode's package cache at:
 
 ```
-~/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1/node_modules/opencode-bgrun/bin
+~/.cache/opencode/packages/@stablekernel/opencode-bgrun@<version>/node_modules/@stablekernel/opencode-bgrun/bin/
 ```
 
-The version tag in the path is discovered dynamically, so it keeps working across version
+The version segment in the path is discovered dynamically, so it keeps working across version
 bumps. To use this mode you need the `install.sh` script itself — grab it from the repo or
 copy it from the cache dir above.
 
@@ -167,11 +177,10 @@ To remove: `./uninstall.sh --cli-only`.
 
 #### Manual alternative
 
-If you prefer, symlink directly from the cache. The path contains `#`, `:`, and `@` so it
-**must be quoted**:
+If you prefer, symlink directly from the npm global cache:
 
 ```bash
-PKG="$HOME/.cache/opencode/packages/opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1/node_modules/opencode-bgrun"
+PKG="$HOME/.cache/opencode/packages/@stablekernel/opencode-bgrun@0.1.2/node_modules/@stablekernel/opencode-bgrun"
 mkdir -p "$HOME/.local/bin"
 for cmd in bgrun bgstatus bgtail bgclean; do
   ln -sf "$PKG/bin/$cmd" "$HOME/.local/bin/$cmd"

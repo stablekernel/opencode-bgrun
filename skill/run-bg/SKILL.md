@@ -82,7 +82,7 @@ as a fallback when no `.session` sidecar is present.
 
 **The plugin is required on OpenCode.** Without it, the human desktop notification still
 fires, but there is no live agent wake. Install the plugin by adding
-`opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1` to the `plugin` array in your
+`@stablekernel/opencode-bgrun@0.1.2` to the `plugin` array in your
 `opencode.json` (recommended), or run `./install.sh` from a repo clone for local dev.
 Restart OpenCode either way. See Setup below.
 
@@ -108,18 +108,19 @@ deliverables. Today `bgrun` handles them at the notification rung only.
 
 ## Setup (one-time)
 
-**1. Recommended — plugin via git-install:**
+**1. Recommended — plugin via npm:**
 Add the spec to the `plugin` array in your `opencode.json`:
 ```json
-{ "plugin": ["opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1"] }
+{ "plugin": ["@stablekernel/opencode-bgrun@0.1.2"] }
 ```
 OpenCode fetches the package automatically on next start. Restart OpenCode to load the
 plugin. This gives you the agent-facing `bgrun` tool and the session-wake feature. It does
 **not** put the human shell CLIs (`bgrun`, `bgstatus`, `bgtail`, `bgclean`) on your PATH.
 
 **2. Human shell CLI (optional, notify-only):**
-To also get the shell CLIs on your PATH, run `./install.sh --cli-only`. It works from a
-clone, or auto-discovers the git-installed package in OpenCode's cache without a clone.
+Recommended: `npm i -g @stablekernel/opencode-bgrun` — puts all four CLI scripts on your
+PATH via npm's bin map. Alternatively, run `./install.sh --cli-only` from a clone, or
+auto-discovers the npm-installed package in OpenCode's cache without a clone.
 `./install.sh --help` shows all modes. Remove with `./uninstall.sh --cli-only`.
 
 **3. Local dev (from a clone):**

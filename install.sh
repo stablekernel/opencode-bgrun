@@ -6,12 +6,12 @@
 #   • Symlinks bin/, plugin/, and skill/ into the user's config dirs.
 #
 # --cli-only: PATH-only install for users who already have the plugin installed
-#   via the git-install spec in opencode.json.
+#   via the npm plugin spec in opencode.json.
 #   • Skips npm, plugin symlink, and skill symlink.
 #   • Discovers CLI scripts from (a) this repo clone or (b) the OpenCode cache.
 #
 # Safe to re-run; replaces existing symlinks, never clobbers real files.
-# Coworkers: use the git-install plugin spec in the README instead.
+# Coworkers: use the npm plugin spec in the README instead.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -34,7 +34,7 @@ Usage: install.sh [OPTIONS]
 Options:
   --cli-only    Install only the 4 CLI scripts (bgrun bgstatus bgtail bgclean)
                 onto PATH (~/.local/bin/).  Skips npm install, plugin symlink,
-                and skill symlink.  Useful for git-install users who already
+                and skill symlink.  Useful for npm-install users who already
                 have the plugin loaded via opencode.json and just want shell
                 access to the bg* helpers.
 
@@ -46,8 +46,9 @@ Modes:
 
   --cli-only    PATH-only install.  Source priority:
                   1. <repo>/bin/  (if running from a clone)
-                  2. ~/.cache/opencode/packages/opencode-bgrun@.../bin/
-                     (auto-discovered from OpenCode's plugin cache)
+                   2. ~/.cache/opencode/packages/@stablekernel/opencode-bgrun@.../
+                         node_modules/@stablekernel/opencode-bgrun/bin/
+                      (auto-discovered from OpenCode's plugin cache)
                 If neither source is found, installation fails with guidance.
 EOF
 }
@@ -118,17 +119,15 @@ if [ "$CLI_ONLY" -eq 1 ]; then
         ok "Linking CLI from: $CLI_SRC  (repo clone)"
     else
         # (b) Discover from OpenCode plugin cache
-        # The cache path contains @ : # and an embedded / in the package spec,
-        # so the package spec spans two path segments:
-        #   opencode-bgrun@github:stablekernel  /  opencode-bgrun#v0.1.1
-        # We glob over both segments to handle any version.
+        # The npm cache path is well-formed: @stablekernel/opencode-bgrun@<version>/
+        # We glob over the version segment to handle any installed version.
         CACHE_MATCH=""
         CACHE_COUNT=0
 
         # Expand the glob manually; iterate over potential matches.
         # Using a for loop with a glob is safe — bash expands it before the loop.
         # We use a sub-glob for the two-segment package spec, then check each hit.
-        for candidate in "$HOME"/.cache/opencode/packages/opencode-bgrun@*/opencode-bgrun*/node_modules/opencode-bgrun/bin; do
+        for candidate in "$HOME"/.cache/opencode/packages/@stablekernel/opencode-bgrun@*/node_modules/@stablekernel/opencode-bgrun/bin; do
             # If the glob found no matches, bash leaves the literal pattern —
             # check that the candidate actually exists as a directory.
             if [ -d "$candidate" ]; then
@@ -144,7 +143,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
             printf "  To fix, do one of:\n"
             printf "    1. Run this script from a repo clone (git clone stablekernel/opencode-bgrun).\n"
             printf "    2. Add the plugin to opencode.json first:\n"
-            printf "         \"plugins\": [\"opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.1\"]\n"
+            printf "         \"plugins\": [\"@stablekernel/opencode-bgrun@0.1.2\"]\n"
             printf "       then let OpenCode fetch it, and re-run: install.sh --cli-only\n"
             exit 1
         fi
@@ -152,7 +151,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
         if [ "$CACHE_COUNT" -gt 1 ]; then
             warn "Multiple cached plugin versions found — using the last (lexically highest) match."
             warn "Matches found:"
-            for candidate in "$HOME"/.cache/opencode/packages/opencode-bgrun@*/opencode-bgrun*/node_modules/opencode-bgrun/bin; do
+            for candidate in "$HOME"/.cache/opencode/packages/@stablekernel/opencode-bgrun@*/node_modules/@stablekernel/opencode-bgrun/bin; do
                 if [ -d "$candidate" ]; then
                     warn "  $candidate"
                 fi
