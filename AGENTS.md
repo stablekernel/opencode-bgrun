@@ -3,8 +3,8 @@
 Background job runner for AI coding agents with **live session wake-to-act** on OpenCode. When a long-running command finishes, it wakes the exact originating agent session (not just a desktop notification) so the agent can proactively continue. Distributed as an OpenCode plugin + optional human shell CLIs.
 
 - **Repo:** `stablekernel/opencode-bgrun` (public) — https://github.com/stablekernel/opencode-bgrun
-- **npm package:** `@stablekernel/opencode-bgrun` (scoped, public npm — **not yet published**, see Blocked section)
-- **Current version:** `0.1.2` (tagged, not yet on npm)
+- **npm package:** `@stablekernel/opencode-bgrun` (scoped, public npm — **published** ✅)
+- **Current version:** `0.1.2` (tagged, published on npm)
 
 ## Quick Start
 
@@ -63,20 +63,21 @@ CHANGELOG.md       # Keep-a-Changelog format, backfilled through v0.1.2
 # From a clone:
 ./install.sh --cli-only
 
-# Without a clone (once npm-published):
+# Without a clone:
 npm i -g @stablekernel/opencode-bgrun   # bin map puts bgrun/bgstatus/bgtail/bgclean on PATH
 ```
 
 ## Git State & Versioning
 
 ```
-e5f5601  HEAD, main, origin/main  — ci: add npm release pipeline
+70364da  HEAD, main, origin/main  — docs: update AGENTS.md and uninstall.sh to reflect npm as canonical install
+e5f5601  ci: add npm release pipeline
 0f0ed39  tag: v0.1.2              — chore: release v0.1.2 (scoped npm, install scripts shipped)
 58e1938  tag: v0.1.1              — chore: release v0.1.1 (--cli-only install mode)
 ...      tag: v0.1.0              — initial release
 ```
 
-Working tree is **clean** — no uncommitted changes as of 2026-07-30.
+Working tree is **clean** — no uncommitted changes as of 2026-07-31.
 
 ## CI / CD
 
@@ -107,33 +108,13 @@ All commits MUST be signed (`commit.gpgsign=true`, key `824AA8A544E8AB33`, `lloy
 - **CFA Artifactory**: global `~/.npmrc` → `cfa.jfrog.io`. This is the CFA default for other projects — irrelevant here.
 - **To publish from this repo dir:** `cd ~/sk/opencode-bgrun && npm publish --access public` (routes to public npm as `lloydsk` automatically).
 
-## ⚠️ BLOCKED — What Must Happen Before npm Publish
-
-The package is fully prepared and `npm publish --dry-run` succeeds. The single blocker:
-
-**`lloydsk` needs publish rights in the `@stablekernel` npm org.**
-
-The `@stablekernel` org is owned/managed by **Justin Carper (`wubs` / justincarper@me.com)**. The ask: add npm user `lloydsk` to `@stablekernel` with Developer (publish) rights.
-
-Once that lands:
-```bash
-cd ~/sk/opencode-bgrun
-npm org ls stablekernel lloydsk     # verify membership
-npm publish --access public          # first publish — creates the package on npm
-npm view @stablekernel/opencode-bgrun version  # confirm → 0.1.2
-```
-
 ## After First Publish — Remaining Work (in order)
 
-1. **Wire OIDC trusted publisher on npmjs.com** — go to the package settings page on npmjs.com, add a trusted publisher: repo `stablekernel/opencode-bgrun`, workflow `release.yml`. This activates `release.yml`'s automated publish (no NPM_TOKEN needed). Also set `default_workflow_permissions` → `read` on the repo actions settings (currently `write` — a security gap).
+1. ✅ **Wire OIDC trusted publisher on npmjs.com** — done. Trusted publisher wired: repo `stablekernel/opencode-bgrun`, workflow `release.yml`. `default_workflow_permissions` set to `read` on repo actions settings.
 
-2. **Dogfood the npm install** — update `~/.config/opencode/opencode.json`:
-   ```json
-   "@stablekernel/opencode-bgrun@0.1.2"
-   ```
-   Restart OpenCode, confirm the `bgrun` tool loads from the npm-installed cache (not the `@github:` cache). Then run `bgtail` (should now resolve from `npm i -g` or the npm cache — confirm PATH setup).
+2. ✅ **Dogfood the npm install** — done. Plugin confirmed loading from `~/.cache/opencode/packages/@stablekernel/opencode-bgrun@0.1.2/...` after updating `~/.config/opencode/opencode.json` to `"@stablekernel/opencode-bgrun@0.1.2"`.
 
-3. **PR3: docs reconciliation** — strip all git-install (`@github:`) references from README, SKILL.md, `install.sh`'s guidance messages; update cache-path examples to the npm cache layout (`@stablekernel/opencode-bgrun@0.1.2/` — no embedded `/` or `#`, well-behaved path); document `npm i -g @stablekernel/opencode-bgrun` as the recommended human CLI path. This is the big docs simplification unlocked by going public+npm.
+3. ✅ **PR3: docs reconciliation** — done. Merged as PR #1 (commit `70364da`) on 2026-07-31. Stripped all git-install (`@github:`) references from README, SKILL.md, `install.sh`; updated cache-path examples to npm cache layout; documented `npm i -g @stablekernel/opencode-bgrun` as recommended human CLI path.
 
 4. **Future: add Dependabot** (`.github/dependabot.yml`) for github-actions SHA updates and npm deps. Optional but recommended per the release pipeline design.
 
