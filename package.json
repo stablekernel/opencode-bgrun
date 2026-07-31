@@ -15,11 +15,13 @@
     "bgrun": "./bin/bgrun",
     "bgstatus": "./bin/bgstatus",
     "bgtail": "./bin/bgtail",
-    "bgclean": "./bin/bgclean"
+    "bgclean": "./bin/bgclean",
+    "bgwait": "./bin/bgwait",
+    "bgkill": "./bin/bgkill"
   },
   "scripts": {
     "test": "node plugin/bgrun-wake.test.js",
-    "lint": "shellcheck bin/bgrun bin/bgstatus bin/bgtail bin/bgclean bin/_bgrunner.sh install.sh uninstall.sh && node --check plugin/bgrun-wake.js"
+    "lint": "shellcheck bin/bgrun bin/bgstatus bin/bgtail bin/bgclean bin/_bgrunner.sh bin/bgwait bin/bgkill install.sh uninstall.sh && node --check plugin/bgrun-wake.js"
   },
   "files": [
     "bin/",

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Block until a specified bgrun job finishes, then exit with the job's exit code.
+# Usage: bgwait <job-id>
+#
+# Exit codes:
+#   <job-exit-code>  on success/failure of the job
+#   1                job not found or unreadable
+#   2                timeout (1 hour)
+#
+# BGRUN_DIR env var: overrides the default job directory (~/.bgrun/jobs).
+set -u
+RUN_DIR="${BGRUN_DIR:-$HOME/.bgrun/jobs}"
+
+id="${1:-}"
+if [ -z "$id" ]; then
+  echo "usage: bgwait <job-id>" >&2
+  exit 1
+fi
+
+STATUS="$RUN_DIR/$id.status"
+
+if [ ! -f "$STATUS" ]; then
+  echo "bgwait: job not found: $id (looked in $RUN_DIR)" >&2
+  exit 1
+fi
+
+# Maximum wait: 1 hour = 3600 seconds.
+TIMEOUT=3600
+elapsed=0
+
+while [ "$elapsed" -lt "$TIMEOUT" ]; do
+  if [ ! -f "$STATUS" ]; then
+    echo "bgwait: status file disappeared for job: $id" >&2
+    exit 1
+  fi
+
+  state="$(sed -n 's/^state=//p' "$STATUS" 2>/dev/null)"
+
+  if [ "$state" = "done" ] || [ "$state" = "failed" ]; then
+    exit_code="$(sed -n 's/^exit=//p' "$STATUS" 2>/dev/null)"
+    if [ -n "$exit_code" ]; then
+      exit "$exit_code"
+    else
+      # State is done/failed but no exit code recorded (e.g., crashed).
+      exit 1
+    fi
+  fi
+
+  sleep 1
+  elapsed=$(( elapsed + 1 ))
+done
+
+echo "bgwait: timeout after ${TIMEOUT}s waiting for job: $id" >&2
+exit 2

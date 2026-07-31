@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Remove job artifacts older than N days from .run/.
+# Remove job artifacts older than N days from the jobs directory.
 # Usage: bgclean [days]   (default: 7)
+#
+# BGRUN_DIR env var: overrides the default job directory (~/.bgrun/jobs).
 set -u
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-BG="$ROOT/.run"
+RUN_DIR="${BGRUN_DIR:-$HOME/.bgrun/jobs}"
 DAYS="${1:-7}"
 
 # Validate argument is a non-negative integer.
@@ -13,18 +14,18 @@ case "$DAYS" in
   ''|*[!0-9]*) echo "usage: bgclean [days]  (days must be a non-negative integer)" >&2; exit 2 ;;
 esac
 
-if [ ! -d "$BG" ]; then
-  echo "nothing to clean (.run/ does not exist)"
+if [ ! -d "$RUN_DIR" ]; then
+  echo "nothing to clean (job directory does not exist: $RUN_DIR)"
   exit 0
 fi
 
 # Check if there are any jobs at all.
 status_count=0
-for f in "$BG"/*.status; do
+for f in "$RUN_DIR"/*.status; do
   [ -f "$f" ] && status_count=$((status_count + 1))
 done
 if [ "$status_count" -eq 0 ]; then
-  echo "nothing to clean (no jobs in .run/)"
+  echo "nothing to clean (no jobs in $RUN_DIR)"
   exit 0
 fi
 
@@ -52,15 +53,15 @@ while IFS= read -r status_file; do
     # Non-empty pid that is not alive — job crashed; fall through to cleanup.
   fi
 
-  log_file="$BG/$job_id.log"
+  log_file="$RUN_DIR/$job_id.log"
   rm -f "$status_file" "$log_file" \
-        "$BG/$job_id.session" "$BG/$job_id.origin" \
-        "$BG/$job_id.notify" "$BG/$job_id.notified"
+        "$RUN_DIR/$job_id.session" "$RUN_DIR/$job_id.origin" \
+        "$RUN_DIR/$job_id.notify" "$RUN_DIR/$job_id.notified"
   removed=$((removed + 1))
-done < <(find "$BG" -maxdepth 1 -name '*.status' -mtime "+$DAYS")
+done < <(find "$RUN_DIR" -maxdepth 1 -name '*.status' -mtime "+$DAYS")
 
 # Count remaining jobs.
-for f in "$BG"/*.status; do
+for f in "$RUN_DIR"/*.status; do
   [ -f "$f" ] && kept=$((kept + 1))
 done
 

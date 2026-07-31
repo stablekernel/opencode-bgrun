@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Send SIGTERM to a running bgrun job.
+# Usage: bgkill <job-id>
+#
+# Exit codes:
+#   0   SIGTERM sent successfully
+#   1   job not found, not running, or PID already dead
+#
+# BGRUN_DIR env var: overrides the default job directory (~/.bgrun/jobs).
+set -u
+RUN_DIR="${BGRUN_DIR:-$HOME/.bgrun/jobs}"
+
+id="${1:-}"
+if [ -z "$id" ]; then
+  echo "usage: bgkill <job-id>" >&2
+  exit 1
+fi
+
+STATUS="$RUN_DIR/$id.status"
+
+if [ ! -f "$STATUS" ]; then
+  echo "bgkill: job not found: $id (looked in $RUN_DIR)" >&2
+  exit 1
+fi
+
+state="$(sed -n 's/^state=//p' "$STATUS" 2>/dev/null)"
+if [ "$state" != "running" ]; then
+  echo "bgkill: job $id is not running (state: ${state:-unknown})" >&2
+  exit 1
+fi
+
+pid="$(sed -n 's/^pid=//p' "$STATUS" 2>/dev/null)"
+if [ -z "$pid" ]; then
+  echo "bgkill: job $id has no recorded PID (may still be starting up)" >&2
+  exit 1
+fi
+
+# Attempt to send SIGTERM.
+if kill -TERM "$pid" 2>/dev/null; then
+  # Update the .status file atomically: set state=killed, end=<now>.
+  tmp="${STATUS}.tmp.$$"
+  {
+    echo "state=killed"
+    echo "exit=143"
+    echo "finished=$(date +%s)"
+  } > "$tmp"
+  # Preserve original fields.
+  grep -E '^(started|cmd|pid|bundle_id|name|cwd)=' "$STATUS" >> "$tmp" 2>/dev/null || true
+  mv "$tmp" "$STATUS"
+  echo "bgkill: sent SIGTERM to job $id (pid $pid)"
+  exit 0
+else
+  # PID doesn't exist — update state to failed.
+  tmp="${STATUS}.tmp.$$"
+  {
+    echo "state=failed"
+    echo "finished=$(date +%s)"
+  } > "$tmp"
+  grep -E '^(started|cmd|pid|bundle_id|name|cwd|exit)=' "$STATUS" >> "$tmp" 2>/dev/null || true
+  mv "$tmp" "$STATUS"
+  echo "bgkill: PID $pid not found for job $id (marked as failed)" >&2
+  exit 1
+fi

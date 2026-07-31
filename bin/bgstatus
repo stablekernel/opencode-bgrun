@@ -3,10 +3,24 @@
 # Usage:
 #   bgstatus            # list all jobs (one line each)
 #   bgstatus <job-id>   # detailed status for one job
+#   bgstatus --json     # JSON array of all jobs
+#   bgstatus --json <job-id>  # JSON array for one job
+#
+# BGRUN_DIR env var: overrides the default job directory (~/.bgrun/jobs).
 set -u
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-BG="$ROOT/.run"
-[ -d "$BG" ] || { echo "no jobs"; exit 0; }
+RUN_DIR="${BGRUN_DIR:-$HOME/.bgrun/jobs}"
+
+# Parse --json flag
+_json=false
+_job_arg=""
+for arg in "$@"; do
+  case "$arg" in
+    --json) _json=true ;;
+    *)      _job_arg="$arg" ;;
+  esac
+done
+
+[ -d "$RUN_DIR" ] || { if [ "$_json" = true ]; then echo "[]"; else echo "no jobs"; fi; exit 0; }
 
 reconcile() { # $1=status-file -> prints effective state
   local f="$1" state pid
@@ -32,13 +46,48 @@ reconcile() { # $1=status-file -> prints effective state
   fi
 }
 
-if [ "$#" -ge 1 ]; then
-  f="$BG/$1.status"
-  [ -f "$f" ] || { echo "unknown job: $1" >&2; exit 1; }
+# Build a JSON object from a .status file. Outputs one line of JSON.
+status_to_json() {
+  local f="$1"
+  local id state exit_code cmd pid start end cwd name log_path
+  id="$(basename "$f" .status)"
+  state="$(reconcile "$f")"
+  exit_code="$(sed -n 's/^exit=//p' "$f")"
+  cmd="$(sed -n 's/^cmd=//p' "$f")"
+  pid="$(sed -n 's/^pid=//p' "$f")"
+  start="$(sed -n 's/^started=//p' "$f")"
+  end="$(sed -n 's/^finished=//p' "$f")"
+  cwd="$(sed -n 's/^cwd=//p' "$f")"
+  name="$(sed -n 's/^name=//p' "$f")"
+  log_path="$(dirname "$f")/$id.log"
+  # Escape double-quotes in string values for valid JSON
+  cmd="$(printf '%s' "$cmd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  cwd="$(printf '%s' "$cwd" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  name="$(printf '%s' "$name" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  log_path="$(printf '%s' "$log_path" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+  # Build JSON object
+  printf '{"id":"%s","state":"%s"' "$id" "$state"
+  [ -n "$cmd" ]       && printf ',"cmd":"%s"' "$cmd"
+  [ -n "$pid" ]       && printf ',"pid":"%s"' "$pid"
+  [ -n "$start" ]     && printf ',"start":"%s"' "$start"
+  [ -n "$end" ]       && printf ',"end":"%s"' "$end"
+  [ -n "$exit_code" ] && printf ',"exit":"%s"' "$exit_code"
+  [ -n "$cwd" ]       && printf ',"cwd":"%s"' "$cwd"
+  [ -n "$name" ]      && printf ',"name":"%s"' "$name"
+  printf ',"log_path":"%s"}' "$log_path"
+}
+
+if [ -n "$_job_arg" ]; then
+  f="$RUN_DIR/$_job_arg.status"
+  [ -f "$f" ] || { echo "unknown job: $_job_arg" >&2; exit 1; }
+  if [ "$_json" = true ]; then
+    printf '['; status_to_json "$f"; printf ']\n'
+    exit 0
+  fi
   eff="$(reconcile "$f")"
-  echo "job:   $1"
+  echo "job:   $_job_arg"
   echo "state: $eff"
-  sed -n 's/^exit=/exit:  /p; s/^cmd=/cmd:   /p' "$f"
+  sed -n 's/^exit=/exit:  /p; s/^cmd=/cmd:   /p; s/^name=/name:  /p' "$f"
   # Elapsed / duration
   started="$(sed -n 's/^started=//p' "$f")"
   finished="$(sed -n 's/^finished=//p' "$f")"
@@ -59,12 +108,31 @@ if [ "$#" -ge 1 ]; then
   exit 0
 fi
 
+# JSON list mode
+if [ "$_json" = true ]; then
+  first=true
+  printf '['
+  for f in "$RUN_DIR"/*.status; do
+    [ -f "$f" ] || continue
+    [ "$first" = true ] || printf ','
+    first=false
+    status_to_json "$f"
+  done
+  printf ']\n'
+  exit 0
+fi
+
 # list mode
 found=0
-for f in "$BG"/*.status; do
+for f in "$RUN_DIR"/*.status; do
   [ -f "$f" ] || continue
   found=1
   id="$(basename "$f" .status)"
-  printf '%-40s %s\n' "$id" "$(reconcile "$f")"
+  name="$(sed -n 's/^name=//p' "$f")"
+  if [ -n "$name" ]; then
+    printf '%-40s %-20s %s\n' "$id" "[$name]" "$(reconcile "$f")"
+  else
+    printf '%-40s %s\n' "$id" "$(reconcile "$f")"
+  fi
 done
 [ "$found" -eq 0 ] && echo "no jobs"

@@ -13,8 +13,8 @@ tmp="${STATUS}.tmp.$$"
   echo "exit=${ec}"
   echo "finished=$(date +%s)"
 } > "$tmp"
-# Preserve the original started=/cmd=/pid=/bundle_id= lines by appending them back.
-grep -E '^(started|cmd|pid|bundle_id)=' "$STATUS" >> "$tmp" 2>/dev/null || true
+# Preserve the original started=/cmd=/pid=/bundle_id=/name=/cwd= lines by appending them back.
+grep -E '^(started|cmd|pid|bundle_id|name|cwd)=' "$STATUS" >> "$tmp" 2>/dev/null || true
 mv "$tmp" "$STATUS"
 
 # Derive job id and run dir from the status file path.
@@ -22,7 +22,7 @@ _job_id="$(basename "$STATUS" .status)"
 _bg_dir="$(dirname "$STATUS")"
 
 # Write .notify breadcrumb if origin is "opencode". This is the ONLY wake path:
-# the OpenCode bgrun-wake plugin watches .run/ for this file and calls session.promptAsync
+# the OpenCode bgrun-wake plugin watches the jobs dir for this file and calls session.promptAsync
 # to wake the active session's live agent. The plugin auto-tracks the session id via the
 # chat.message hook — bgrun no longer writes a .session sidecar.
 # (The old `opencode run -s` CLI inject was removed — it spawned a separate headless agent
@@ -39,7 +39,7 @@ if [ "$_origin_val" = "opencode" ]; then
   mv "$_notify_tmp" "$_bg_dir/$_job_id.notify"
 fi
 
-# Notify on completion. osascript is built into macOS — no extra deps.
+# Notify on completion. terminal-notifier (if available) or osascript (macOS) or notify-send (Linux).
 # This human notification is the floor (Rung 3): it always fires, so non-OpenCode tools
 # (Cursor, Claude Code) and sessions without the plugin still get a completion signal.
 label="$(grep '^cmd=' "$STATUS" 2>/dev/null | sed 's/^cmd=//' | cut -c1-60)"
@@ -53,9 +53,11 @@ if command -v terminal-notifier >/dev/null 2>&1; then
   args=()
   [ -n "$bundle_id" ] && args=(-activate "$bundle_id")
   terminal-notifier -title "bgrun" -message "${result}: ${label}" -sound Morse -timeout 15 "${args[@]}" 2>/dev/null || true
-else
+elif command -v osascript >/dev/null 2>&1; then
   osascript -e 'on run argv' \
             -e 'display notification (item 1 of argv) with title "bgrun" sound name "Glass"' \
             -e 'end run' \
             -- "${result}: ${label}" 2>/dev/null || true
+elif command -v notify-send >/dev/null 2>&1; then
+  notify-send "bgrun" "${result}: ${label}" 2>/dev/null || true
 fi

@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Launch a command in the background. Output -> file, status -> file. Returns immediately.
-# Usage: bgrun [-s <session-id>] [--origin <opencode|claude|cursor>] [--] <command> [args...]
+# Usage: bgrun [-s <session-id>] [--origin <opencode|claude|cursor>] [--name <label>] [--] <command> [args...]
 #   bgrun make test-short
 #   bgrun go test ./internal/...
 #   bgrun --origin claude make test-short
+#   bgrun --name my-build make build
+#   bgrun doctor
 #
 # -s <session-id>  The calling OpenCode session id. Normally supplied automatically by the
 #                  bgrun plugin tool (which captures context.sessionID in-process). Omit when
@@ -11,12 +13,59 @@
 #                  session.list() to determine which session to wake.
 # --origin defaults to "opencode". Pass --origin claude or --origin cursor to suppress
 # the OpenCode wake signal (plugin will see origin != "opencode" and skip the wake).
+# --name <label>   Optional human-readable label for the job (used as the job identifier slug).
 # Use '--' to stop flag parsing when the command itself starts with a flag.
+#
+# BGRUN_DIR env var: overrides the default job directory (~/.bgrun/jobs).
+#   Use an absolute path for consistency across plugin + shell audiences.
 set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-BG="$ROOT/.run"
-mkdir -p "$BG"
+RUN_DIR="${BGRUN_DIR:-$HOME/.bgrun/jobs}"
+mkdir -p "$RUN_DIR"
+
+# doctor subcommand — print a health checklist, exit 0 if all required checks pass.
+if [ "${1:-}" = "doctor" ]; then
+  all_ok=true
+  # Check RUN_DIR writable
+  if [ -w "$RUN_DIR" ]; then
+    echo "[OK]   BGRUN_DIR ($RUN_DIR) is writable"
+  else
+    echo "[FAIL] BGRUN_DIR ($RUN_DIR) is not writable (mkdir -p may have failed)"
+    all_ok=false
+  fi
+  # Check _bgrunner.sh present and executable
+  if [ -x "$HERE/_bgrunner.sh" ]; then
+    echo "[OK]   _bgrunner.sh found and executable ($HERE/_bgrunner.sh)"
+  else
+    echo "[FAIL] _bgrunner.sh not found or not executable at $HERE/_bgrunner.sh"
+    all_ok=false
+  fi
+  # Check osascript (macOS)
+  if command -v osascript >/dev/null 2>&1; then
+    echo "[OK]   osascript available (macOS notifications)"
+  else
+    echo "[not available] osascript not found (not macOS or not in PATH)"
+  fi
+  # Check notify-send (Linux)
+  if command -v notify-send >/dev/null 2>&1; then
+    echo "[OK]   notify-send available (Linux notifications)"
+  else
+    echo "[not available] notify-send not found"
+  fi
+  # Check OpenCode running
+  if pgrep -x opencode >/dev/null 2>&1 || pgrep -f 'opencode' >/dev/null 2>&1; then
+    echo "[running] OpenCode process detected"
+  else
+    echo "[not detected] OpenCode process not detected"
+  fi
+  # Show BGRUN_DIR value
+  echo "[info] BGRUN_DIR=$RUN_DIR"
+  if [ "$all_ok" = true ]; then
+    exit 0
+  else
+    exit 1
+  fi
+fi
 
 # Self-prune old job artifacts (fire-and-forget, never blocks or fails this script).
 "$HERE/bgclean" 7 >/dev/null 2>&1 & disown 2>/dev/null || true
@@ -26,6 +75,7 @@ mkdir -p "$BG"
 # When no flags are provided the code path below is unchanged.
 _origin=""
 _session=""
+_name=""
 while [ "$#" -ge 1 ]; do
   case "$1" in
     -s)
@@ -38,6 +88,12 @@ while [ "$#" -ge 1 ]; do
       shift
       [ "$#" -ge 1 ] || { echo "bgrun: --origin requires a value (opencode|claude|cursor)" >&2; exit 2; }
       _origin="$1"
+      shift
+      ;;
+    --name)
+      shift
+      [ "$#" -ge 1 ] || { echo "bgrun: --name requires a label value" >&2; exit 2; }
+      _name="$1"
       shift
       ;;
     --)
@@ -53,17 +109,17 @@ while [ "$#" -ge 1 ]; do
   esac
 done
 
-[ "$#" -ge 1 ] || { echo "usage: bgrun [-s <session-id>] [--origin <tool>] [--] <command> [args...]" >&2; exit 2; }
+[ "$#" -ge 1 ] || { echo "usage: bgrun [-s <session-id>] [--origin <tool>] [--name <label>] [--] <command> [args...]" >&2; exit 2; }
 
 # Default origin to opencode — this repo's primary target.
 if [ -z "$_origin" ]; then
   _origin="opencode"
 fi
 
-# Warn once (per .run/ lifetime) if terminal-notifier isn't installed. A sentinel
+# Warn once (per RUN_DIR lifetime) if terminal-notifier isn't installed. A sentinel
 # file suppresses the warning on subsequent bgrun calls so it doesn't spam every invocation.
-if ! command -v terminal-notifier >/dev/null 2>&1; then
-  _tn_warned="$BG/.tn-warned"
+if ! command -v terminal-notifier >/dev/null 2>&1 && ! command -v notify-send >/dev/null 2>&1; then
+  _tn_warned="$RUN_DIR/.tn-warned"
   if [ ! -f "$_tn_warned" ]; then
     echo "⚠️  bgrun: terminal-notifier not found — completion notifications will be brief." >&2
     echo "   Install with: brew install terminal-notifier" >&2
@@ -73,12 +129,20 @@ fi
 
 # Build slug from the full command line (remaining args after flag parsing).
 raw="$*"
-slug="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | sed -E 's/-+/-/g; s/^-|-$//g' | cut -c1-24)"
-[ -n "$slug" ] || slug="job"
+if [ -n "$_name" ]; then
+  # Sanitize --name: lowercase, alphanumeric+hyphens only, max 40 chars, no leading ./-.
+  slug="$(printf '%s' "$_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9-' '-' | sed -E 's/-+/-/g; s/^[.-]+//; s/-+$//g' | cut -c1-40)"
+  [ -n "$slug" ] || slug="job"
+else
+  # Sanitize the command-derived slug: prevent path traversal and dangerous chars.
+  # Strip /  \ .. null-bytes; replace non-alphanumeric-non-hyphen with -; truncate to 60 chars.
+  slug="$(printf '%s' "$raw" | tr '[:upper:]' '[:lower:]' | tr -d '/\\.' | tr -c 'a-z0-9-' '-' | sed -E 's/-+/-/g; s/^[-]+//; s/-+$//g' | cut -c1-60)"
+  [ -n "$slug" ] || slug="job"
+fi
 id="${slug}-$(date +%s)-$$"
 
-STATUS="$BG/$id.status"
-LOG="$BG/$id.log"
+STATUS="$RUN_DIR/$id.status"
+LOG="$RUN_DIR/$id.log"
 : > "$LOG"
 
 # 1. Write initial status SYNCHRONOUSLY — eliminates the startup race so a
@@ -88,22 +152,23 @@ LOG="$BG/$id.log"
   echo "id=$id"
   echo "started=$(date +%s)"
   echo "cmd=$raw"
+  [ -n "$_name" ] && echo "name=$_name"
 } > "$STATUS"
 
 # 1b. Write origin sidecar atomically. Presence of .origin with value "opencode"
 #     is the wake signal — the plugin reads it to decide whether to wake this session.
-_orig_tmp="$BG/$id.origin.tmp.$$"
+_orig_tmp="$RUN_DIR/$id.origin.tmp.$$"
 printf '%s\n' "$_origin" > "$_orig_tmp"
-mv "$_orig_tmp" "$BG/$id.origin"
+mv "$_orig_tmp" "$RUN_DIR/$id.origin"
 
 # 1c. Write session sidecar atomically BEFORE spawning — a fast job must not be able
 #     to finish and fire .notify before the id is persisted. The plugin reads this for
 #     exact session routing. Omitted when -s was not passed (plugin falls back to
 #     session.list() or activeSessionID from the chat.message hook).
 if [ -n "$_session" ]; then
-  _sess_tmp="$BG/$id.session.tmp.$$"
+  _sess_tmp="$RUN_DIR/$id.session.tmp.$$"
   printf '%s\n' "$_session" > "$_sess_tmp"
-  mv "$_sess_tmp" "$BG/$id.session"
+  mv "$_sess_tmp" "$RUN_DIR/$id.session"
 fi
 
 # 2. Resolve the app bundle ID for notification click-through BEFORE launching
