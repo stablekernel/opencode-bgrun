@@ -184,6 +184,143 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
 
   const runDir = path.join(directory, '.run');
 
+  // ── Cleanup helper ─────────────────────────────────────────────────────────
+  /**
+   * Check whether a PID is alive using process.kill(pid, 0).
+   * Returns true if alive (signal 0 succeeds), false if dead or PID is invalid.
+   */
+  const isPidAlive = (pid) => {
+    const n = parseInt(pid, 10);
+    if (!n || n <= 0) return false;
+    try {
+      process.kill(n, 0);
+      return true;
+    } catch (_) {
+      return false;
+    }
+  };
+
+  /**
+   * Parse key=value pairs from a .status file content string.
+   * Returns a plain object with string values.
+   */
+  const parseStatus = (content) => {
+    const result = {};
+    for (const line of content.split('\n')) {
+      const eq = line.indexOf('=');
+      if (eq !== -1) {
+        result[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+      }
+    }
+    return result;
+  };
+
+  /**
+   * Delete job files older than `olderThanDays` days from runDir.
+   * Skips jobs that are currently running (state=running + live PID).
+   * Silent on success; only throws if something unexpected happens.
+   * Returns { deleted: number, skipped: number }.
+   */
+  const cleanupJobs = (olderThanDays) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(runDir);
+    } catch (_) {
+      // .run/ doesn't exist — nothing to clean.
+      return { deleted: 0, skipped: 0 };
+    }
+
+    const cutoffMs = olderThanDays * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    let deleted = 0;
+    let skipped = 0;
+
+    for (const name of entries) {
+      if (!name.endsWith('.status')) continue;
+      const jobId = name.slice(0, -'.status'.length);
+      const statusPath = path.join(runDir, name);
+
+      // Check mtime of .status file.
+      let stat;
+      try {
+        stat = fs.statSync(statusPath);
+      } catch (_) {
+        continue; // file disappeared between readdir and stat — skip
+      }
+      if (now - stat.mtimeMs < cutoffMs) continue; // not old enough
+
+      // Read .status to check liveness.
+      let statusContent = '';
+      try {
+        statusContent = fs.readFileSync(statusPath, 'utf8');
+      } catch (_) {
+        continue;
+      }
+      const statusFields = parseStatus(statusContent);
+
+      // Mirror bgclean's three-way logic for running state:
+      //   - state=running + empty pid → startup window or abandoned → preserve
+      //   - state=running + live pid  → genuinely running → preserve
+      //   - state=running + dead pid  → crashed → allow cleanup
+      if (statusFields.state === 'running') {
+        const pid = statusFields.pid || '';
+        if (!pid || isPidAlive(pid)) {
+          skipped++;
+          continue;
+        }
+        // Non-empty dead pid — job crashed; fall through to cleanup.
+      }
+
+      // Delete all sidecar files for this job.
+      const extensions = ['.status', '.log', '.session', '.origin', '.notify', '.notified'];
+      for (const ext of extensions) {
+        try {
+          fs.unlinkSync(path.join(runDir, `${jobId}${ext}`));
+        } catch (_) {
+          // File may not exist — that's fine.
+        }
+      }
+      deleted++;
+    }
+
+    return { deleted, skipped };
+  };
+
+  // ── Auto-cleanup on startup (14 days) ─────────────────────────────────────
+  // Runs once silently when the plugin initializes. No console output on success.
+  try {
+    cleanupJobs(14);
+  } catch (err) {
+    console.error('[bgrun-wake] auto-cleanup error:', err?.message ?? err);
+  }
+
+  // ── bgclean tool ───────────────────────────────────────────────────────────
+  // Lets the agent clean up completed job files from .run/ with a configurable age.
+  // Only registered when @opencode-ai/plugin loaded successfully (graceful degrade).
+  const bgcleanTool = tool ? tool({
+    description:
+      'Delete completed job files from the .run/ directory. Accepts an optional age parameter ' +
+      '(default: 7 days). Skips jobs that are still running. Returns a summary of what was deleted.',
+    args: {
+      days: tool.schema.number().optional().describe(
+        'Delete jobs older than this many days (default: 7)'
+      ),
+    },
+    execute: async (args) => {
+      const olderThanDays = (typeof args.days === 'number' && args.days >= 0) ? args.days : 7;
+      try {
+        const { deleted, skipped } = cleanupJobs(olderThanDays);
+        let summary = `Deleted ${deleted} job(s) older than ${olderThanDays} days.`;
+        if (skipped > 0) {
+          summary += ` Skipped ${skipped} running job(s).`;
+        }
+        return summary;
+      } catch (err) {
+        return `bgclean error: ${err?.message ?? String(err)}`;
+      }
+    },
+  }) : null;
+
   // Auto-tracked session id. Set by the chat.message hook on every user message.
   // Starts null; if a job fires before any message, we fall back to session.list().
   let activeSessionID = null;
@@ -394,13 +531,19 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
     },
   };
 
-  if (bgrunTool) {
+  if (bgrunTool || bgcleanTool) {
     /**
      * bgrun tool — lets the agent run a command in the background and get woken
      * when it finishes. context.sessionID is captured in-process for exact routing.
-     * Only registered when @opencode-ai/plugin loaded successfully (real OpenCode runtime).
+     *
+     * bgclean tool — lets the agent delete completed job files from .run/ with a
+     * configurable age threshold (default: 7 days). Skips running jobs.
+     *
+     * Both are only registered when @opencode-ai/plugin loaded successfully (real OpenCode runtime).
      */
-    pluginReturn.tool = { bgrun: bgrunTool };
+    pluginReturn.tool = {};
+    if (bgrunTool) pluginReturn.tool.bgrun = bgrunTool;
+    if (bgcleanTool) pluginReturn.tool.bgclean = bgcleanTool;
   }
 
   return pluginReturn;
