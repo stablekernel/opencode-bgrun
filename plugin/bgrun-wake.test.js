@@ -30,11 +30,17 @@ function assert(label, cond, detail = '') {
 /** Sleep N milliseconds. */
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Create a temp project root with a .run/ dir. */
+/**
+ * Create a temp project root with a jobs dir and set BGRUN_DIR to it.
+ * The plugin reads process.env.BGRUN_DIR to find the job directory.
+ * Returns { dir, runDir } — dir is the "project root", runDir is the job dir (BGRUN_DIR).
+ */
 function makeTmpRoot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgrun-test-'));
-  const runDir = path.join(dir, '.run');
-  fs.mkdirSync(runDir);
+  const runDir = path.join(dir, 'jobs');
+  fs.mkdirSync(runDir, { recursive: true });
+  // Set BGRUN_DIR so the plugin watches this temp dir instead of ~/.bgrun/jobs.
+  process.env.BGRUN_DIR = runDir;
   return { dir, runDir };
 }
 
@@ -198,11 +204,12 @@ async function runTests() {
     fs.rmSync(dir, { recursive: true, force: true });
   }
 
-  // ── (f) missing .run/ doesn't crash ──────────────────────────────────────
+  // ── (f) empty jobs dir doesn't crash and produces no wakes ─────────────
   {
-    console.log('\n(f) missing .run/ does not crash');
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bgrun-test-'));
-    // NOTE: we do NOT create .run/ here.
+    console.log('\n(f) empty jobs dir does not crash');
+    // makeTmpRoot creates a fresh empty dir and sets BGRUN_DIR to it.
+    const { dir } = makeTmpRoot();
+    // NOTE: no jobs written — runDir is empty.
     const { client, calls } = makeMockClient();
 
     let threw = false;
@@ -216,8 +223,8 @@ async function runTests() {
       console.error('  plugin threw:', err);
     }
 
-    assert('(f) plugin does not throw when .run/ missing', !threw);
-    assert('(f) no wakes when .run/ missing', calls.promptAsync.length === 0);
+    assert('(f) plugin does not throw with empty jobs dir', !threw);
+    assert('(f) no wakes with empty jobs dir', calls.promptAsync.length === 0);
 
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -277,6 +284,252 @@ async function runTests() {
     assert('(h) routed to activeSessionID (ses_FALLBACK)',
       calls.promptAsync[0]?.id === 'ses_FALLBACK',
       `got ${calls.promptAsync[0]?.id}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (i) BGRUN_DIR env var — plugin polls the custom dir, not ~/.bgrun/jobs ─
+  {
+    console.log('\n(i) BGRUN_DIR env var — plugin watches the env-specified dir');
+    const { dir, runDir } = makeTmpRoot(); // sets process.env.BGRUN_DIR = runDir
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_I' }, {});
+
+    // Write the job into the BGRUN_DIR-specified runDir — plugin must see it there.
+    writeJob(runDir, 'job-009', { withNotify: true });
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    // If BGRUN_DIR is honoured the job was processed; if ~/.bgrun/jobs was used instead,
+    // promptAsync would never be called (job not there).
+    assert('(i) promptAsync called — BGRUN_DIR dir was polled', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(i) .notified exists in BGRUN_DIR dir',
+      fs.existsSync(path.join(runDir, 'job-009.notified')));
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (j) wake message includes exit code from .status ──────────────────────
+  {
+    console.log('\n(j) wake message includes exit code');
+    const { dir, runDir } = makeTmpRoot();
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_J' }, {});
+
+    // Write a job that exited with code 42.
+    writeJob(runDir, 'job-010', { exit: '42', withNotify: true });
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    assert('(j) promptAsync called', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(j) wake message contains exit code 42',
+      calls.promptAsync[0]?.text.includes('42'),
+      `text: ${calls.promptAsync[0]?.text}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (k) wake message contains ✅ emoji for exit 0 ─────────────────────────
+  {
+    console.log('\n(k) wake message has ✅ for exit 0');
+    const { dir, runDir } = makeTmpRoot();
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_K' }, {});
+
+    writeJob(runDir, 'job-011', { exit: '0', withNotify: true });
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    assert('(k) promptAsync called', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(k) wake message has ✅ for success',
+      calls.promptAsync[0]?.text.includes('✅'),
+      `text: ${calls.promptAsync[0]?.text}`);
+    assert('(k) wake message does NOT have ❌ for success',
+      !calls.promptAsync[0]?.text.includes('❌'),
+      `text: ${calls.promptAsync[0]?.text}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (l) wake message contains ❌ emoji for non-zero exit ──────────────────
+  {
+    console.log('\n(l) wake message has ❌ for exit 1');
+    const { dir, runDir } = makeTmpRoot();
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_L' }, {});
+
+    writeJob(runDir, 'job-012', { exit: '1', withNotify: true });
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    assert('(l) promptAsync called', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(l) wake message has ❌ for failure',
+      calls.promptAsync[0]?.text.includes('❌'),
+      `text: ${calls.promptAsync[0]?.text}`);
+    assert('(l) wake message does NOT have ✅ for failure',
+      !calls.promptAsync[0]?.text.includes('✅'),
+      `text: ${calls.promptAsync[0]?.text}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (m) wake message includes last log line when .log file exists ─────────
+  {
+    console.log('\n(m) wake message includes last log line');
+    const { dir, runDir } = makeTmpRoot();
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_M' }, {});
+
+    const jobId = 'job-013';
+    writeJob(runDir, jobId, { withNotify: true });
+    // Write a multi-line .log file; plugin should include the last non-empty line.
+    fs.writeFileSync(
+      path.join(runDir, `${jobId}.log`),
+      'line one\nline two\nall tests passed\n',
+    );
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    assert('(m) promptAsync called', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(m) wake message contains last log line',
+      calls.promptAsync[0]?.text.includes('all tests passed'),
+      `text: ${calls.promptAsync[0]?.text}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (n) auto-cleanup on startup removes jobs older than 14 days ───────────
+  {
+    console.log('\n(n) auto-cleanup removes jobs older than 14 days on plugin init');
+    const { dir, runDir } = makeTmpRoot();
+
+    // Write an old job (no .notify — already done).
+    const oldJobId = 'job-old';
+    writeJob(runDir, oldJobId, { exit: '0' });
+    // Backdate the .status file to 15 days ago so cleanupJobs sees it as expired.
+    const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+    fs.utimesSync(path.join(runDir, `${oldJobId}.status`), fifteenDaysAgo, fifteenDaysAgo);
+
+    // Write a recent job (should NOT be cleaned up).
+    const recentJobId = 'job-recent';
+    writeJob(runDir, recentJobId, { exit: '0' });
+
+    const { client } = makeMockClient();
+    // Constructing the plugin triggers auto-cleanup(14) internally.
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks.dispose();
+
+    assert('(n) old job .status deleted by auto-cleanup',
+      !fs.existsSync(path.join(runDir, `${oldJobId}.status`)));
+    assert('(n) old job .origin deleted by auto-cleanup',
+      !fs.existsSync(path.join(runDir, `${oldJobId}.origin`)));
+    assert('(n) recent job .status preserved by auto-cleanup',
+      fs.existsSync(path.join(runDir, `${recentJobId}.status`)));
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (o) migration hint logs console.error when legacy .run/ has .status files
+  {
+    console.log('\n(o) migration hint warns when legacy .run/ contains .status files');
+    const { dir, runDir } = makeTmpRoot();
+
+    // Create a legacy .run/ dir with a .status file inside the project root.
+    const legacyDir = path.join(dir, '.run');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(path.join(legacyDir, 'oldjob.status'), 'state=done\nexit=0\n');
+
+    // Capture console.error output.
+    const errorLines = [];
+    const origError = console.error;
+    console.error = (...args) => {
+      errorLines.push(args.join(' '));
+      // Suppress output to keep test runner clean; remove this line to debug.
+    };
+
+    const { client } = makeMockClient();
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks.dispose();
+
+    // Restore console.error.
+    console.error = origError;
+
+    const migrationWarning = errorLines.find((l) => l.includes('[bgrun-wake] note: legacy .run/'));
+    assert('(o) migration hint console.error was emitted',
+      !!migrationWarning,
+      `captured error lines: ${JSON.stringify(errorLines)}`);
+    assert('(o) migration hint mentions the legacy dir path',
+      !!(migrationWarning && migrationWarning.includes(legacyDir)),
+      `warning: ${migrationWarning}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (p) migration hint is NOT emitted when legacy .run/ is absent ─────────
+  {
+    console.log('\n(p) no migration hint when legacy .run/ does not exist');
+    const { dir } = makeTmpRoot();
+    // Do NOT create a .run/ dir — should be silently ignored.
+
+    const errorLines = [];
+    const origError = console.error;
+    console.error = (...args) => {
+      errorLines.push(args.join(' '));
+    };
+
+    const { client } = makeMockClient();
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks.dispose();
+
+    console.error = origError;
+
+    const migrationWarning = errorLines.find((l) => l.includes('[bgrun-wake] note: legacy .run/'));
+    assert('(p) no migration hint when no legacy .run/ exists', !migrationWarning,
+      `unexpected warning: ${migrationWarning}`);
+
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  // ── (q) wake message contains the command from .status ────────────────────
+  {
+    console.log('\n(q) wake message includes command string from .status');
+    const { dir, runDir } = makeTmpRoot();
+    const { client, calls } = makeMockClient();
+
+    const hooks = await BgrunWakePlugin({ client, directory: dir });
+    await hooks['chat.message']({ sessionID: 'ses_Q' }, {});
+
+    // writeJob writes cmd=make test-short in the status file.
+    writeJob(runDir, 'job-014', { withNotify: true });
+
+    await sleep(2500);
+    await hooks.dispose();
+
+    assert('(q) promptAsync called', calls.promptAsync.length === 1,
+      `called ${calls.promptAsync.length} times`);
+    assert('(q) wake message contains command string',
+      calls.promptAsync[0]?.text.includes('make test-short'),
+      `text: ${calls.promptAsync[0]?.text}`);
 
     fs.rmSync(dir, { recursive: true, force: true });
   }
