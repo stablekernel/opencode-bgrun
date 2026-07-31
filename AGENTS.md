@@ -53,16 +53,10 @@ CHANGELOG.md       # Keep-a-Changelog format, backfilled through v0.1.2
 
 ## Distribution
 
-**Current blessed install (git-install, pre-npm):**
-```json
-{ "plugin": ["opencode-bgrun@github:stablekernel/opencode-bgrun#v0.1.2"] }
-```
-
-**Future canonical install (npm, once published):**
+**Canonical install (npm):**
 ```json
 { "plugin": ["@stablekernel/opencode-bgrun@0.1.2"] }
 ```
-Once npm is live, git-install references should be removed from docs.
 
 **Human CLI on PATH (optional, notify-only):**
 ```bash
