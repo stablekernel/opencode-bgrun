@@ -46,8 +46,9 @@ Modes:
 
   --cli-only    PATH-only install.  Source priority:
                   1. <repo>/bin/  (if running from a clone)
-                  2. ~/.cache/opencode/packages/opencode-bgrun@.../bin/
-                     (auto-discovered from OpenCode's plugin cache)
+                   2. ~/.cache/opencode/packages/@stablekernel/opencode-bgrun@.../
+                         node_modules/@stablekernel/opencode-bgrun/bin/
+                      (auto-discovered from OpenCode's plugin cache)
                 If neither source is found, installation fails with guidance.
 EOF
 }
@@ -126,7 +127,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
         # Expand the glob manually; iterate over potential matches.
         # Using a for loop with a glob is safe — bash expands it before the loop.
         # We use a sub-glob for the two-segment package spec, then check each hit.
-        for candidate in "$HOME"/.cache/opencode/packages/opencode-bgrun@*/opencode-bgrun*/node_modules/opencode-bgrun/bin; do
+        for candidate in "$HOME"/.cache/opencode/packages/@stablekernel/opencode-bgrun@*/node_modules/@stablekernel/opencode-bgrun/bin; do
             # If the glob found no matches, bash leaves the literal pattern —
             # check that the candidate actually exists as a directory.
             if [ -d "$candidate" ]; then
@@ -150,7 +151,7 @@ if [ "$CLI_ONLY" -eq 1 ]; then
         if [ "$CACHE_COUNT" -gt 1 ]; then
             warn "Multiple cached plugin versions found — using the last (lexically highest) match."
             warn "Matches found:"
-            for candidate in "$HOME"/.cache/opencode/packages/opencode-bgrun@*/opencode-bgrun*/node_modules/opencode-bgrun/bin; do
+            for candidate in "$HOME"/.cache/opencode/packages/@stablekernel/opencode-bgrun@*/node_modules/@stablekernel/opencode-bgrun/bin; do
                 if [ -d "$candidate" ]; then
                     warn "  $candidate"
                 fi

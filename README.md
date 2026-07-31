@@ -104,9 +104,9 @@ Add the following entry to the `plugins` array in your `opencode.json`:
 ```
 
 OpenCode installs the package into
-`$(npm root -g)/@stablekernel/opencode-bgrun/` and loads the plugin
-automatically on startup. No PATH setup is needed for the **agent (tool) path** — the plugin
-resolves `bin/bgrun` by absolute path at runtime.
+`~/.cache/opencode/packages/@stablekernel/opencode-bgrun@<version>/node_modules/@stablekernel/opencode-bgrun/`
+and loads the plugin automatically on startup. No PATH setup is needed for the **agent (tool)
+path** — the plugin resolves `bin/bgrun` by absolute path at runtime.
 
 ### Local / dev install (repo clone)
 
@@ -166,10 +166,10 @@ install already provides):
 `opencode.json` npm spec. It auto-discovers the scripts inside OpenCode's package cache at:
 
 ```
-$(npm root -g)/@stablekernel/opencode-bgrun/bin/
+~/.cache/opencode/packages/@stablekernel/opencode-bgrun@<version>/node_modules/@stablekernel/opencode-bgrun/bin/
 ```
 
-The version tag in the path is discovered dynamically, so it keeps working across version
+The version segment in the path is discovered dynamically, so it keeps working across version
 bumps. To use this mode you need the `install.sh` script itself — grab it from the repo or
 copy it from the cache dir above.
 
@@ -180,7 +180,7 @@ To remove: `./uninstall.sh --cli-only`.
 If you prefer, symlink directly from the npm global cache:
 
 ```bash
-PKG="$(npm root -g)/@stablekernel/opencode-bgrun"
+PKG="$HOME/.cache/opencode/packages/@stablekernel/opencode-bgrun@0.1.2/node_modules/@stablekernel/opencode-bgrun"
 mkdir -p "$HOME/.local/bin"
 for cmd in bgrun bgstatus bgtail bgclean; do
   ln -sf "$PKG/bin/$cmd" "$HOME/.local/bin/$cmd"
