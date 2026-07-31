@@ -162,6 +162,9 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
       command: tool.schema.string().describe(
         'The full shell command to run in the background, e.g. "make test-short"'
       ),
+      name: tool.schema.string().optional().describe(
+        'Optional human-readable label for the job (used as the job identifier slug)'
+      ),
     },
     execute: async (args, context) => {
       // execFileSync is used (rather than Bun $) because args.command is a free-form
@@ -169,9 +172,14 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
       // argument to `sh -c` is the safest way to run arbitrary shell syntax.
       // _bgrunner.sh runs "$@" directly, so argv becomes: sh -c "<command>" — correct.
       try {
+        const bgrunArgs = ['-s', context.sessionID];
+        if (args.name) {
+          bgrunArgs.push('--name', args.name);
+        }
+        bgrunArgs.push('--', 'sh', '-c', args.command);
         const output = execFileSync(
           bgrunBin,
-          ['-s', context.sessionID, '--', 'sh', '-c', args.command],
+          bgrunArgs,
           { encoding: 'utf8' }
         );
         return output.trim();
@@ -182,7 +190,32 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
     },
   }) : null;
 
-  const runDir = path.join(directory, '.run');
+  // ── Resolve run directory (BGRUN_DIR env var or ~/.bgrun/jobs default) ────
+  const runDir = process.env.BGRUN_DIR
+    ? path.resolve(process.env.BGRUN_DIR)
+    : path.join(os.homedir(), '.bgrun', 'jobs');
+
+  // Ensure run directory exists (two levels: ~/.bgrun/jobs).
+  try {
+    fs.mkdirSync(runDir, { recursive: true });
+  } catch (_) {
+    // Ignore — directory may already exist or creation may fail silently.
+  }
+
+  // ── Migration hint: warn once if legacy .run/ dir has jobs ────────────────
+  const legacyDir = path.join(directory, '.run');
+  try {
+    const legacyEntries = fs.readdirSync(legacyDir);
+    const hasLegacyJobs = legacyEntries.some((e) => e.endsWith('.status'));
+    if (hasLegacyJobs) {
+      console.error(
+        `[bgrun-wake] note: legacy .run/ jobs exist in ${legacyDir}; they won't appear in ` +
+        `${runDir}. Run bgclean there or set BGRUN_DIR=${legacyDir} to keep old behavior.`,
+      );
+    }
+  } catch (_) {
+    // .run/ doesn't exist — no migration needed.
+  }
 
   // ── Cleanup helper ─────────────────────────────────────────────────────────
   /**
@@ -295,11 +328,11 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
   }
 
   // ── bgclean tool ───────────────────────────────────────────────────────────
-  // Lets the agent clean up completed job files from .run/ with a configurable age.
+  // Lets the agent clean up completed job files with a configurable age.
   // Only registered when @opencode-ai/plugin loaded successfully (graceful degrade).
   const bgcleanTool = tool ? tool({
     description:
-      'Delete completed job files from the .run/ directory. Accepts an optional age parameter ' +
+      'Delete completed job files from the job directory. Accepts an optional age parameter ' +
       '(default: 7 days). Skips jobs that are still running. Returns a summary of what was deleted.',
     args: {
       days: tool.schema.number().optional().describe(
@@ -363,6 +396,22 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
       const content = fs.readFileSync(statusPath, 'utf8');
       const match = content.match(/^exit=(\d+)/m);
       return match ? parseInt(match[1], 10) : null;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  /**
+   * Read the last non-empty line of a .log file, truncated to maxLen chars.
+   * Returns null if the file doesn't exist or is empty.
+   */
+  const readLastLogLine = (logPath, maxLen = 200) => {
+    try {
+      const content = fs.readFileSync(logPath, 'utf8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0);
+      if (lines.length === 0) return null;
+      const last = lines[lines.length - 1];
+      return last.length > maxLen ? last.slice(0, maxLen) + '…' : last;
     } catch (_) {
       return null;
     }
@@ -452,14 +501,35 @@ export const BgrunWakePlugin = async ({ client, directory, $ }) => {
       return;
     }
 
-    // Read exit code from .status for a richer message.
+    // Read exit code and command from .status for a richer message.
     const exitCode = readExitCode(statusPath);
     const exitStr = exitCode !== null ? String(exitCode) : '?';
     const exitEmoji = exitCode === 0 ? '✅' : '❌';
 
+    // Read the command from status file.
+    let cmdStr = null;
+    try {
+      const statusContent = fs.readFileSync(statusPath, 'utf8');
+      const cmdMatch = statusContent.match(/^cmd=(.*)$/m);
+      if (cmdMatch) cmdStr = cmdMatch[1].trim();
+    } catch (_) {
+      // ignore
+    }
+
+    // Read the last log line for context.
+    const logPath = path.join(runDir, `${jobId}.log`);
+    const lastLogLine = readLastLogLine(logPath);
+
     // Compose a wake message that makes the agent act, not just acknowledge.
-    const wakeMessage =
-      `${exitEmoji} Background job \`${jobId}\` finished (exit ${exitStr}). ` +
+    let wakeMessage =
+      `${exitEmoji} Background job \`${jobId}\` finished (exit ${exitStr}).\n`;
+    if (cmdStr) {
+      wakeMessage += `Command: ${cmdStr}\n`;
+    }
+    if (lastLogLine) {
+      wakeMessage += `Last output: ${lastLogLine}\n`;
+    }
+    wakeMessage +=
       `Review the result now: run \`bgtail ${jobId} 40\` to see the output, ` +
       `summarize pass/fail, and continue the task that depended on it.`;
 
