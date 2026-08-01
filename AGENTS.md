@@ -10,9 +10,9 @@ Background job runner for AI coding agents with **live session wake-to-act** on 
 
 ```bash
 # Verify everything works
-npm test          # smoke tests (node plugin/bgrun-wake.test.js) — expect 19/19 pass
+npm test          # smoke tests (node plugin/bgrun-wake.test.js) — expect 39/39 pass
 npm run lint      # shellcheck + node --check — expect exit 0
-npm pack --dry-run  # verify tarball contents (expect 12 files, @stablekernel/opencode-bgrun@0.1.2)
+npm pack --dry-run  # verify tarball contents (expect 14 files, @stablekernel/opencode-bgrun@0.1.2)
 ```
 
 ## Project Structure
@@ -20,8 +20,8 @@ npm pack --dry-run  # verify tarball contents (expect 12 files, @stablekernel/op
 ```
 bin/               # Shell CLI scripts (bgrun, bgstatus, bgtail, bgclean, _bgrunner.sh)
 plugin/
-  bgrun-wake.js    # OpenCode plugin — registers the bgrun TOOL, runs the wake poller
-  bgrun-wake.test.js  # Standalone smoke tests (19 tests, no npm deps in runner)
+  bgrun-wake.js    # OpenCode plugin — registers bgrun + bgclean MCP tools, runs the wake poller
+  bgrun-wake.test.js  # Standalone smoke tests (39 tests, no npm deps in runner)
 skill/run-bg/SKILL.md  # Agent-facing skill for consuming this tool
 install.sh         # Dev/clone install: symlinks bin+plugin+skill + --cli-only mode
 uninstall.sh       # Removes install.sh-created symlinks + --cli-only mode
@@ -125,6 +125,7 @@ All commits MUST be signed (`commit.gpgsign=true`, key `824AA8A544E8AB33`, `lloy
 3. **NEVER publish a version that doesn't have a matching signed git tag** — the `release.yml` version-consistency guard enforces this, but also enforce it manually.
 4. **NEVER modify generated files** in `node_modules/`.
 5. **NEVER force-push `main`** — use admin bypass via normal `git push` (bypass is already enabled for admins).
+6. **NEVER add a user-facing feature without updating both `README.md` and `skill/run-bg/SKILL.md`** — README is the human reference; SKILL.md is what agents read. Both must stay in sync with the implementation. Shell commands, MCP tools, env vars, flags, and default values all count. Internal implementation details (slug format, sidecar file structure) do not need to be documented.
 
 ## Key Design Decisions (don't relitigate without reading these)
 
