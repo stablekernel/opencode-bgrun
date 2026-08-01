@@ -86,11 +86,11 @@ jobs:
         id: publish_real
         if: ${{ github.event_name == 'release' || !inputs.dry-run }}
         env:
-          # Classic token auth via NPM_TOKEN secret (granular access token scoped to
-          # this package with Publish permission, set in repo Actions secrets).
-          # OIDC trusted publishing attempted but blocked by npm subject-claim mismatch;
-          # classic token is the reliable fallback. --provenance still works with tokens.
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # OIDC trusted publishing — no token needed. npm exchanges the GitHub OIDC
+          # token automatically when registry-url is set and id-token: write is granted.
+          # The trusted publisher on npmjs.com is configured with the immutable subject
+          # format (stablekernel@4998931/opencode-bgrun@1316557990) to match this repo's
+          # GitHub OIDC subject claim (created after the July 15 2026 cutover).
           PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
         run: |
           npm publish --provenance --access public
