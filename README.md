@@ -76,16 +76,32 @@ etc. — the job still completes normally and the human desktop notification fir
 
 ## Commands
 
-| Command | Typical caller | Purpose |
-|---------|---------------|---------|
-| `bgrun <command…>` | Agent tool / shell | Launch a command as a detached background job; returns `started: <job-id>` immediately |
-| `bgstatus [<job-id>]` | Agent / shell | Show status (`running`, `done`, `crashed`) and exit code; omit job-id to list all jobs |
-| `bgtail <job-id> [lines]` | Agent / shell | Print the last *N* lines of the job's log (default 40) |
-| `bgclean [days]` | Shell / cron | Delete `.run/` artifacts older than *N* days (default 7); self-prunes the log directory |
+### Plugin tools (agent-facing)
 
-When used from an agent, the `bgrun` **tool** (plugin-registered) wraps the `bgrun` script
-and handles session-id injection automatically. `bgstatus`, `bgtail`, and `bgclean` are shell
-scripts called from the agent via a bash tool.
+These are registered by the plugin as first-class OpenCode tools. Agents call them directly — no shell access required.
+
+| Tool | Purpose |
+|------|---------|
+| `bgrun` | Launch a command as a detached background job. Returns `started: <job-id>` immediately. Injects `sessionID` automatically so the plugin can wake this exact session on completion. |
+| `bgclean` | Delete completed job artifacts. Default: 7 days. Skips running jobs. The plugin also auto-cleans on startup (14-day default). |
+
+### Shell CLIs (human-facing)
+
+Plain shell scripts — notify-only, no session wake. Available on PATH after `npm i -g` or `install.sh`.
+
+| Command | Purpose |
+|---------|---------|
+| `bgrun [--name <label>] <command…>` | Launch a detached background job; desktop notification fires on completion (no session wake). `--name` sets a human-readable label used as the job slug. |
+| `bgstatus [--json] [<job-id>]` | Show status (`running`, `done`, `crashed`) and exit code; omit job-id to list all jobs. `--json` emits a machine-readable JSON array (fields: `id`, `state`, `cmd`, `pid`, `start`, `end`, `exit`, `cwd`, `name`, `log_path`). |
+| `bgtail <job-id> [lines]` | Print the last *N* lines of the job's log (default 40). |
+| `bgwait <job-id>` | Block until the job finishes; exits with the job's exit code. Exit 1 if job not found; exit 2 on timeout (1 hour). Useful for sequential shell scripting. |
+| `bgkill <job-id>` | Send SIGTERM to a running job and mark it `killed`. Exits 1 if the job is not running or not found. |
+| `bgclean [days]` | Delete job artifacts older than *N* days (default: 7). |
+| `bgrun doctor` | Health check: verifies BGRUN_DIR is writable, `_bgrunner.sh` is present, notification tools (`osascript`/`notify-send`) are available, and OpenCode is detected. Exits 0 if all required checks pass, 1 otherwise. |
+
+**Auto-cleanup:** the plugin silently removes job artifacts older than 14 days each time
+OpenCode starts. Explicit `bgclean` calls default to 7 days — more aggressive, since you're
+asking for it. Both thresholds can be overridden by passing a `days` argument.
 
 ---
 
@@ -98,6 +114,8 @@ All environment variables are optional. Defaults work out of the box for typical
 | `BGRUN_DIR` | `~/.bgrun/jobs` | Plugin + all shell CLIs | Override the directory where job artifacts (`.status`, `.log`, `.notify`, `.session`) are stored. Useful for CI, multi-user machines, or when you want jobs on a different volume. |
 | `BGRUN_ACTIVATE` | _(none)_ | Shell CLI only | macOS bundle ID of the app to activate when a desktop notification is clicked (e.g. `com.todesktop.230313mzl4w4u92`). Has no effect without `terminal-notifier`. See [desktop notifications](#optional-desktop-notifications) for usage example. |
 | `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | Plugin only | Override the OpenCode config directory. Used as a fallback path to locate the `@opencode-ai/plugin` SDK when bare import fails. Rarely needed — only relevant when OpenCode is installed to a non-default config location. |
+
+**Legacy `.run/` migration:** If the plugin detects a legacy `.run/` directory with existing jobs in your project root, it prints a one-time informational message on startup suggesting you set `BGRUN_DIR=./.run` to preserve that layout, or let new jobs accumulate in the default `~/.bgrun/jobs`. This message is not an error — no action is required; jobs in the old directory continue to be readable by the shell CLIs if you point `BGRUN_DIR` accordingly.
 
 ---
 
@@ -209,7 +227,7 @@ first, then the OpenCode config directory. If the SDK cannot be found the poller
 
 ### Optional: desktop notifications
 
-Install `terminal-notifier` for richer macOS notifications:
+**macOS:** Install `terminal-notifier` for richer notifications with click-through support:
 
 ```bash
 brew install terminal-notifier
@@ -222,6 +240,9 @@ editor's bundle ID in your shell profile:
 # ~/.zshrc
 export BGRUN_ACTIVATE=com.example.YourEditor
 ```
+
+**Linux:** `notify-send` is automatically detected and used if available — no setup required.
+Run `bgrun doctor` to confirm it is found.
 
 ---
 
@@ -245,10 +266,12 @@ present.
 
 ```
 bin/
-  bgrun              # Launch a detached job; writes .run/ sidecars
+  bgrun              # Launch a detached job; writes .run/ sidecars; bgrun doctor for health check
   _bgrunner.sh       # Detached executor (invoked by bgrun, not directly)
-  bgstatus           # Check job status
+  bgstatus           # Check job status; --json for machine-readable output
   bgtail             # Tail job log output
+  bgwait             # Block until a job finishes; exit with its exit code
+  bgkill             # Send SIGTERM to a running job
   bgclean            # Remove old .run/ artifacts
 plugin/
   bgrun-wake.js      # OpenCode plugin: registers bgrun tool + runs completion poller
