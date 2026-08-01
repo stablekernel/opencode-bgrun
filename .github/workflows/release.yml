@@ -44,12 +44,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set up Node 22
+      - name: Set up Node 24
         uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: "22"
+          node-version: "24"
           cache: npm
           registry-url: "https://registry.npmjs.org"
+          # Node 24 ships with npm 11.5.1+ which is required for OIDC trusted
+          # publishing. Node 22 bundles npm 10.x which does not support it.
 
       - name: npm ci
         run: npm ci
@@ -82,29 +84,14 @@ jobs:
           fi
 
       # ── Real publish (gated: only on release event or non-dry-run dispatch) ─
-      - name: Debug OIDC subject claim
-        if: ${{ github.event_name == 'release' || !inputs.dry-run }}
-        run: |
-          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
-            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
-          echo "OIDC token claims (sub, aud, repository, ref, job_workflow_ref):"
-          echo "$TOKEN" | cut -d. -f2 | python3 -c "import sys,base64,json; d=sys.stdin.read().strip(); d+='=='*(-len(d)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(d)), indent=2))" | grep -E '"sub"|"aud"|"repository"|"ref"|"job_workflow_ref"'
-          echo "---npm OIDC exchange response---"
-          EXCHANGE=$(curl -sS -X POST \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            "https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/%40stablekernel%2Fopencode-bgrun")
-          echo "$EXCHANGE" | python3 -m json.tool 2>/dev/null || echo "$EXCHANGE"
-
       - name: Publish to npm (real)
         id: publish_real
         if: ${{ github.event_name == 'release' || !inputs.dry-run }}
         env:
-          # OIDC trusted publishing — no token needed. npm exchanges the GitHub OIDC
-          # token automatically when registry-url is set and id-token: write is granted.
-          # The trusted publisher on npmjs.com is configured with the immutable subject
-          # format (stablekernel@4998931/opencode-bgrun@1316557990) to match this repo's
-          # GitHub OIDC subject claim (created after the July 15 2026 cutover).
+          # OIDC trusted publishing — no token needed. npm 11.5.1+ (bundled with
+          # Node 24) exchanges the GitHub OIDC token automatically when registry-url
+          # is set and id-token: write is granted. NODE_AUTH_TOKEN is intentionally
+          # absent so npm uses OIDC instead of classic token auth.
           PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
         run: |
           npm publish --provenance --access public
