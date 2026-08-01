@@ -1,6 +1,6 @@
 {
   "name": "@stablekernel/opencode-bgrun",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Background job runner for AI coding agents with live session wake-to-act on OpenCode.",
   "type": "module",
   "license": "MIT",

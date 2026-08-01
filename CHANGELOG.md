@@ -6,6 +6,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-07-31
+
+### Added
+- `BGRUN_DIR` environment variable to configure the job directory; defaults to `~/.bgrun/jobs` (fixes latent split-brain bug where plugin and shell CLIs could resolve different directories)
+- `bgwait <job-id>` command — blocks until a job finishes, exits with the job's exit code
+- `bgkill <job-id>` command — sends SIGTERM to a running job
+- `bgstatus --json` flag for machine-readable JSON output
+- `--name <label>` flag on `bgrun` for human-readable job labels
+- `bgrun doctor` subcommand — health check for BGRUN_DIR, runner script, notification tools, OpenCode process
+- Linux desktop notifications via `notify-send` (fallback when `osascript` is unavailable)
+- `bgclean` MCP tool — agents can trigger job cleanup directly
+- Auto-cleanup on plugin startup (jobs older than 14 days silently removed)
+- Enhanced wake prompt — includes exit code (✅/❌), command, and last log line
+- Slug sanitization to prevent path traversal via crafted job names
+- `Makefile` with `make dev` / `make prod` / `make status` for switching plugin between local clone and npm install
+- Migration hint on startup when legacy `.run/` directory with jobs is detected
+
+### Changed
+- Default job directory changed from `.run/` (project-relative) to `~/.bgrun/jobs` (home-relative); jobs from all projects are now stored in one place
+
 ## [0.1.2] - 2026-07-30
 ### Added
 - Ship `install.sh` / `uninstall.sh` in the npm tarball (previously excluded from the `files` allowlist).
