@@ -49,7 +49,9 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          registry-url: "https://registry.npmjs.org"
+          # registry-url intentionally omitted: setting it causes actions/setup-node to
+          # inject NODE_AUTH_TOKEN, which overrides the OIDC token exchange and breaks
+          # npm trusted publishing. The npm CLI handles OIDC automatically via id-token: write.
 
       - name: npm ci
         run: npm ci
