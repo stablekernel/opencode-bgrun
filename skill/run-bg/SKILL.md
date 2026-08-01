@@ -9,8 +9,8 @@ description: Use when running any long or verbose shell command (make test, go t
 # Run in Background
 
 Run long/verbose commands detached. Output → file. Status → file. Context stays clean; the
-session never blocks. State lives in `.run/` so a *new* agent session can pick up a job the
-previous one started.
+session never blocks. State lives in `~/.bgrun/jobs` (default) so a *new* agent session can
+pick up a job the previous one started.
 
 ## When to use
 - Any command expected to run > ~30s OR emit > ~100 lines.
@@ -26,18 +26,23 @@ previous one started.
 - Commands requiring interactive stdin — bgrun detaches from the terminal.
 - Interactive commands (prompts, REPL, SSH sessions).
 
-## The four commands
+## Commands
 
 | Action | How (agent) | How (human shell) |
 |---|---|---|
 | Start  | call the `bgrun` tool with `command` argument | `bgrun [--origin <tool>] [--] <command...>` |
 | Status | `bgstatus [<job-id>]` | `bgstatus [<job-id>]` |
 | Tail   | `bgtail <job-id> [lines]` | `bgtail <job-id> [lines]` |
+| Wait   | — | `bgwait <job-id>` |
+| Kill   | — | `bgkill <job-id>` |
 | Clean  | `bgclean [days]` | `bgclean [days]` |
 
+- **`bgwait <job-id>`** — blocks until the job finishes; exits with the job's exit code. Useful for sequential shell scripting (`bgwait "$JOB" && deploy.sh`).
+- **`bgkill <job-id>`** — sends SIGTERM to a running job and marks it killed. Use when a job is hung or no longer needed.
+
 The shell scripts are installed on PATH via `./install.sh --cli-only` (or full `./install.sh` for local dev).
-No path prefix needed — use bare `bgstatus`, `bgtail`, `bgclean` (and `bgrun` when in a
-human shell).
+No path prefix needed — use bare `bgstatus`, `bgtail`, `bgwait`, `bgkill`, `bgclean` (and
+`bgrun` when in a human shell).
 
 ## Live session wake (OpenCode only)
 
@@ -74,11 +79,22 @@ repo. When the **`bgrun` tool** is called, `context.sessionID` is captured in-pr
 forwarded to `_bgrunner.sh` via the `-s <session-id>` flag. The script atomically writes a
 `.session` sidecar file before spawning the detached job, so the exact originating session
 is on disk from the start. When the job finishes, `_bgrunner.sh` writes a `.notify`
-breadcrumb. The plugin polls `.run/` every 1s, atomically claims the breadcrumb (renames
-`.notify` → `.notified`, fire-once), reads the `.session` sidecar to route the wake to
-the exact session, and calls `client.session.promptAsync()` to wake the live agent so it
-proactively continues. `chat.message` hook tracking and `client.session.list()` serve only
-as a fallback when no `.session` sidecar is present.
+breadcrumb. The plugin polls `~/.bgrun/jobs` every 1s, atomically claims the breadcrumb
+(renames `.notify` → `.notified`, fire-once), reads the `.session` sidecar to route the
+wake to the exact session, and calls `client.session.promptAsync()` to wake the live agent
+so it proactively continues. `chat.message` hook tracking and `client.session.list()` serve
+only as a fallback when no `.session` sidecar is present.
+
+**Wake message format** — when woken, the agent receives a prompt like:
+```
+✅ Background job abc123 finished (exit 0).
+Command: make test-short
+Last output: ok  github.com/stablekernel/myrepo  42.3s
+Run `bgtail abc123 40` to see the full tail.
+```
+- ✅ = exit 0; ❌ = non-zero exit
+- `Last output` is the last non-empty log line, truncated to 200 chars
+- When woken: check the exit status first, then run `bgtail <id> 40` for details
 
 **The plugin is required on OpenCode.** Without it, the human desktop notification still
 fires, but there is no live agent wake. Install the plugin by adding
@@ -99,12 +115,12 @@ deliverables. Today `bgrun` handles them at the notification rung only.
 
 | File | Content |
 |---|---|
-| `.run/<job>.origin` | origin tool |
-| `.run/<job>.session` | session id written atomically by the script when `-s` is provided (tool path); read by the plugin to route the wake to the exact originating session |
-| `.run/<job>.notify` | completion breadcrumb written by `_bgrunner.sh` at job finish |
-| `.run/<job>.notified` | written by the plugin on atomic claim (rename from `.notify`); marks job already-woken |
+| `~/.bgrun/jobs/<job>.origin` | origin tool |
+| `~/.bgrun/jobs/<job>.session` | session id written atomically by the script when `-s` is provided (tool path); read by the plugin to route the wake to the exact originating session |
+| `~/.bgrun/jobs/<job>.notify` | completion breadcrumb written by `_bgrunner.sh` at job finish |
+| `~/.bgrun/jobs/<job>.notified` | written by the plugin on atomic claim (rename from `.notify`); marks job already-woken |
 
-`bgclean` removes all three sidecars alongside the standard `.status`/`.log` pair.
+`bgclean` removes all four sidecars alongside the standard `.status`/`.log` pair.
 
 ## Setup (one-time)
 
@@ -118,7 +134,7 @@ plugin. This gives you the agent-facing `bgrun` tool and the session-wake featur
 **not** put the human shell CLIs (`bgrun`, `bgstatus`, `bgtail`, `bgclean`) on your PATH.
 
 **2. Human shell CLI (optional, notify-only):**
-Recommended: `npm i -g @stablekernel/opencode-bgrun` — puts all four CLI scripts on your
+Recommended: `npm i -g @stablekernel/opencode-bgrun` — puts all six CLI scripts on your
 PATH via npm's bin map. Alternatively, run `./install.sh --cli-only` from a clone, or
 auto-discovers the npm-installed package in OpenCode's cache without a clone.
 `./install.sh --help` shows all modes. Remove with `./uninstall.sh --cli-only`.
@@ -127,11 +143,24 @@ auto-discovers the npm-installed package in OpenCode's cache without a clone.
 Run `./install.sh` (no flags) from the repo root. It symlinks CLI + plugin + skill from
 your clone for development. Restart OpenCode after.
 
+**Configuration (optional env vars):**
+```bash
+# Override where job artifacts are stored (default: ~/.bgrun/jobs)
+export BGRUN_DIR=/tmp/my-jobs          # e.g. per-project isolation or temp storage
+
+# Or inline for a single run:
+BGRUN_DIR=/tmp/my-jobs bgrun -- npm test
+```
+
 `terminal-notifier` is optional — if absent, notifications fall back to `osascript` (built
 into macOS). For click-through to OpenCode from notifications, add to `~/.zshrc`:
 ```bash
 export BGRUN_ACTIVATE=com.superset.desktop  # OpenCode; swap for your terminal's bundle ID
 ```
+
+> **Legacy note:** Earlier versions stored jobs in `.run/` at the project root. If you have
+> old jobs there, the plugin prints a one-time informational warning on startup. Use
+> `BGRUN_DIR=.run bgrun …` to keep old behavior, or leave it and use the new default.
 
 ## Workflow
 
@@ -144,7 +173,7 @@ export BGRUN_ACTIVATE=com.superset.desktop  # OpenCode; swap for your terminal's
    - `done exit=<non-zero>` or `crashed` → failure; analyze the log.
 3. **Read results (context-safe):**
    - Success or small log → `bgtail "$JOB" 40`
-   - Need the whole log → **ctx_execute_file** on `.run/<JOB>.log` to extract only
+   - Need the whole log → **ctx_execute_file** on `~/.bgrun/jobs/<JOB>.log` to extract only
      the failing lines. NEVER `cat` or `Read` the full log — that reintroduces token bloat.
 
 ### Example full workflow
@@ -178,27 +207,34 @@ bgrun bash -c 'make build && make test-short'
 
 ## Resuming after hand-off / new session
 
-- List all jobs: `bgstatus`  (reads files from `.run/`; no memory needed)
+- List all jobs: `bgstatus`  (reads files from `~/.bgrun/jobs`; no memory needed)
 - Then `bgstatus <id>` / `bgtail <id>` as above.
 
 ## Rules
 
 - Call the scripts; never hand-roll `nohup … &` inline (fragile under bash 3.2 + set -e).
-- One job = one id. Multiple concurrent jobs are fine — each has its own `.run/<id>.log` and `.run/<id>.status`.
-- Logs live in `.run/` (gitignored). Safe to leave; `bgrun` never deletes prior logs.
+- One job = one id. Multiple concurrent jobs are fine — each has its own `~/.bgrun/jobs/<id>.log` and `~/.bgrun/jobs/<id>.status`.
+- Logs live in `~/.bgrun/jobs` (not in the project; not gitignored there). Safe to leave; `bgrun` never deletes prior logs automatically (auto-cleanup happens at startup after 14 days).
 - **Never `cat` or `Read` a full log** — use `bgtail` for tails or `ctx_execute_file` for analysis.
-- Run `bgclean` periodically to prevent `.run/` from growing unbounded.
+- Run `bgclean` periodically to proactively remove completed jobs before the 14-day auto-cleanup.
 
 ## Housekeeping
 
-`.run/` accumulates a `.status` + `.log` pair (plus optional sidecars) for every job. Left
-unmanaged it can grow large on busy machines or long-lived CI agents.
+`~/.bgrun/jobs` accumulates a `.status` + `.log` pair (plus optional sidecars) for every
+job. Two cleanup tiers keep it from growing unbounded:
+
+**Automatic (startup):** the plugin silently removes completed job artifacts older than
+**14 days** each time OpenCode starts. No action required.
+
+**Manual (on-demand):** call the `bgclean` tool or shell command to clean up sooner.
+Default threshold is **7 days** (more aggressive than the startup sweep — you're asking
+for it explicitly).
 
 ```bash
-# Remove jobs older than 7 days (default)
+# Remove completed jobs older than 7 days (default)
 bgclean
 
-# Remove jobs older than 3 days
+# Remove completed jobs older than 3 days
 bgclean 3
 ```
 
@@ -213,7 +249,7 @@ When you need to analyze the whole log without loading it into context:
 
 ```
 ctx_execute_file(
-  path: ".run/<JOB>.log",
+  path: "~/.bgrun/jobs/<JOB>.log",
   language: "javascript",
   code: "const L=FILE_CONTENT.split('\\n'); \
          const fails=L.filter(l=>/(--- FAIL|FAIL|panic:|Error:)/.test(l)); \
