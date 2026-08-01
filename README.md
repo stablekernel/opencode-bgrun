@@ -89,6 +89,18 @@ scripts called from the agent via a bash tool.
 
 ---
 
+## Configuration
+
+All environment variables are optional. Defaults work out of the box for typical single-user installs.
+
+| Variable | Default | Scope | Description |
+|---|---|---|---|
+| `BGRUN_DIR` | `~/.bgrun/jobs` | Plugin + all shell CLIs | Override the directory where job artifacts (`.status`, `.log`, `.notify`, `.session`) are stored. Useful for CI, multi-user machines, or when you want jobs on a different volume. |
+| `BGRUN_ACTIVATE` | _(none)_ | Shell CLI only | macOS bundle ID of the app to activate when a desktop notification is clicked (e.g. `com.todesktop.230313mzl4w4u92`). Has no effect without `terminal-notifier`. See [desktop notifications](#optional-desktop-notifications) for usage example. |
+| `OPENCODE_CONFIG_DIR` | `~/.config/opencode` | Plugin only | Override the OpenCode config directory. Used as a fallback path to locate the `@opencode-ai/plugin` SDK when bare import fails. Rarely needed — only relevant when OpenCode is installed to a non-default config location. |
+
+---
+
 ## Install details
 
 ### Recommended: npm install via `opencode.json` (coworkers / CI)

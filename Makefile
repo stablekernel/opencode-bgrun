@@ -7,7 +7,7 @@ OPENCODE_CONFIG := $(HOME)/.config/opencode/opencode.json
 VERSION := $(shell node -p "require('./package.json').version")
 NPM_ENTRY := @stablekernel/opencode-bgrun@$(VERSION)
 
-.PHONY: help dev prod status test lint
+.PHONY: help dev prod status test lint install install-cli uninstall
 
 ## help: show this usage summary (default target)
 help:
@@ -17,6 +17,9 @@ help:
 	@echo "  dev     Switch OpenCode plugin to local dev path"
 	@echo "  prod    Switch OpenCode plugin to npm pin (@stablekernel/opencode-bgrun@$(VERSION))"
 	@echo "  status  Show which mode the bgrun plugin is currently in"
+	@echo "  install   Run install.sh (full dev install: npm deps + CLI + plugin + skill symlinks)"
+	@echo "  install-cli Run install.sh --cli-only (CLI scripts on PATH only)"
+	@echo "  uninstall Remove symlinks created by install.sh"
 	@echo "  test    Run npm test"
 	@echo "  lint    Run npm run lint"
 	@echo "  help    Show this message (default)"
@@ -92,6 +95,18 @@ status:
 	    console.log('bgrun plugin: NPM \u2192 ' + entry); \
 	  } \
 	"
+
+## install: full dev install (npm deps + CLI + plugin + skill symlinks)
+install:
+	./install.sh
+
+## install-cli: CLI scripts on PATH only (for npm plugin users)
+install-cli:
+	./install.sh --cli-only
+
+## uninstall: remove symlinks created by install.sh
+uninstall:
+	./uninstall.sh
 
 ## test: run npm test
 test:
