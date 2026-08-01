@@ -86,13 +86,11 @@ jobs:
         id: publish_real
         if: ${{ github.event_name == 'release' || !inputs.dry-run }}
         env:
-          # Unset NODE_AUTH_TOKEN so npm uses OIDC trusted publishing instead of
-          # classic token auth. actions/setup-node injects NODE_AUTH_TOKEN when
-          # registry-url is set; if it's present (even empty), npm prefers it over
-          # the OIDC token exchange, causing a 404 on publish.
-          # Fallback: if OIDC fails, set NPM_TOKEN as a GitHub Actions secret and
-          # replace the line below with: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NODE_AUTH_TOKEN: ""
+          # Classic token auth via NPM_TOKEN secret (granular access token scoped to
+          # this package with Publish permission, set in repo Actions secrets).
+          # OIDC trusted publishing attempted but blocked by npm subject-claim mismatch;
+          # classic token is the reliable fallback. --provenance still works with tokens.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
         run: |
           npm publish --provenance --access public
