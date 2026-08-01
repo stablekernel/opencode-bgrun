@@ -82,6 +82,14 @@ jobs:
           fi
 
       # ── Real publish (gated: only on release event or non-dry-run dispatch) ─
+      - name: Debug OIDC subject claim
+        if: ${{ github.event_name == 'release' || !inputs.dry-run }}
+        run: |
+          TOKEN=$(curl -sS -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=npm:registry.npmjs.org" | python3 -c "import sys,json; print(json.load(sys.stdin)['value'])")
+          echo "OIDC token payload (base64 decoded sub):"
+          echo "$TOKEN" | cut -d. -f2 | python3 -c "import sys,base64,json; d=sys.stdin.read().strip(); d+='=='*(-len(d)%4); print(json.dumps(json.loads(base64.urlsafe_b64decode(d)), indent=2))" | grep -E '"sub"|"repository"|"ref"'
+
       - name: Publish to npm (real)
         id: publish_real
         if: ${{ github.event_name == 'release' || !inputs.dry-run }}
