@@ -49,9 +49,7 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          # registry-url intentionally omitted: setting it causes actions/setup-node to
-          # inject NODE_AUTH_TOKEN, which overrides the OIDC token exchange and breaks
-          # npm trusted publishing. The npm CLI handles OIDC automatically via id-token: write.
+          registry-url: "https://registry.npmjs.org"
 
       - name: npm ci
         run: npm ci
@@ -88,10 +86,13 @@ jobs:
         id: publish_real
         if: ${{ github.event_name == 'release' || !inputs.dry-run }}
         env:
-          # Fallback (classic token): if OIDC trusted publishing is not configured
-          # on the npm package, uncomment the next line and add NPM_TOKEN as a
-          # GitHub Actions secret.
-          # NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Unset NODE_AUTH_TOKEN so npm uses OIDC trusted publishing instead of
+          # classic token auth. actions/setup-node injects NODE_AUTH_TOKEN when
+          # registry-url is set; if it's present (even empty), npm prefers it over
+          # the OIDC token exchange, causing a 404 on publish.
+          # Fallback: if OIDC fails, set NPM_TOKEN as a GitHub Actions secret and
+          # replace the line below with: NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ""
           PKG_VERSION: ${{ steps.version_check.outputs.pkg_version }}
         run: |
           npm publish --provenance --access public
